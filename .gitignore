@@ -221,3 +221,4 @@ web/out/
 .vercel
 .env*.local
 test_providers.py
+.DS_Store

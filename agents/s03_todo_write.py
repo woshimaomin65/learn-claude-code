@@ -30,6 +30,7 @@ import os
 import subprocess
 from pathlib import Path
 import readline
+import json
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -47,6 +48,9 @@ client = Anthropic(base_url=BASE_URL, api_key=API_KEY)
 SYSTEM = f"""You are a coding agent at {WORKDIR}.
 Use the todo tool to plan multi-step tasks. Mark in_progress before starting, completed when done.
 Prefer tools over prose."""
+
+def js(data):
+    print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
 
 
 # -- TodoManager: structured state the LLM writes to --
@@ -98,7 +102,8 @@ def safe_path(p: str) -> Path:
     return path
 
 def run_bash(command: str) -> str:
-    dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
+    #dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
+    dangerous = []
     if any(d in command for d in dangerous):
         return "Error: Dangerous command blocked"
     try:
@@ -164,12 +169,17 @@ TOOLS = [
 # -- Agent loop with nag reminder injection --
 def agent_loop(messages: list):
     rounds_since_todo = 0
+    turn_index = 1
     while True:
         # Nag reminder: if 3+ rounds without a todo update, inject reminder
         if rounds_since_todo >= 3 and messages:
             last = messages[-1]
             if last["role"] == "user" and isinstance(last.get("content"), list):
                 last["content"].insert(0, {"type": "text", "text": "<reminder>Update your todos.</reminder>"})
+        print('\n'*4)
+        print('-' * 40)
+        print(f'Turn {turn_index}: ')
+        js(messages)
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
@@ -192,6 +202,7 @@ def agent_loop(messages: list):
                     used_todo = True
         rounds_since_todo = 0 if used_todo else rounds_since_todo + 1
         messages.append({"role": "user", "content": results})
+        turn_index += 1
 
 
 if __name__ == "__main__":

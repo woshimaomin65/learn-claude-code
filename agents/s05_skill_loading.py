@@ -32,9 +32,14 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from glob import glob
+import json
+import readline
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
+def js(data):
+    print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
 
 load_dotenv(override=True)
 
@@ -42,9 +47,11 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
-SKILLS_DIR = WORKDIR / ".skills"
+BASE_URL = os.getenv("BASE_URL", "https://dashscope.aliyuncs.com/apps/anthropic")
+API_KEY = os.getenv("API_KEY", "sk-6cacbd1fc53f4c8ebd80fdfcfe75a533")
+MODEL = os.getenv("MODEL", "qwen3.5-plus")
+client = Anthropic(base_url=BASE_URL, api_key=API_KEY)
+SKILLS_DIR = WORKDIR / "skills"
 
 
 # -- SkillLoader: parse .skills/*.md files with YAML frontmatter --
@@ -55,13 +62,13 @@ class SkillLoader:
         self._load_all()
 
     def _load_all(self):
-        if not self.skills_dir.exists():
-            return
-        for f in sorted(self.skills_dir.glob("*.md")):
-            name = f.stem
-            text = f.read_text()
-            meta, body = self._parse_frontmatter(text)
-            self.skills[name] = {"meta": meta, "body": body, "path": str(f)}
+        #for f in sorted(self.skills_dir.glob("*.md")):
+        for _dir in sorted(glob(f"{self.skills_dir}/*")):
+            for f in glob(f'{_dir}/*.md'):
+                name = Path(f.rsplit('/', 1)[0]).stem
+                text = Path(f).read_text()
+                meta, body = self._parse_frontmatter(text)
+                self.skills[name] = {"meta": meta, "body": body, "path": str(f)}
 
     def _parse_frontmatter(self, text: str) -> tuple:
         """Parse YAML frontmatter between --- delimiters."""

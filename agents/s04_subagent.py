@@ -25,6 +25,8 @@ Key insight: "Process isolation gives context isolation for free."
 import os
 import subprocess
 from pathlib import Path
+import readline
+import json
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -35,12 +37,17 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+BASE_URL = os.getenv("BASE_URL", "https://dashscope.aliyuncs.com/apps/anthropic")
+API_KEY = os.getenv("API_KEY", "sk-6cacbd1fc53f4c8ebd80fdfcfe75a533")
+MODEL = os.getenv("MODEL", "qwen3.5-plus")
+
+client = Anthropic(base_url=BASE_URL, api_key=API_KEY)
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use the task tool to delegate exploration or subtasks."
 SUBAGENT_SYSTEM = f"You are a coding subagent at {WORKDIR}. Complete the given task, then summarize your findings."
 
+def js(data):
+    print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
 
 # -- Tool implementations shared by parent and child --
 def safe_path(p: str) -> Path:
@@ -50,7 +57,8 @@ def safe_path(p: str) -> Path:
     return path
 
 def run_bash(command: str) -> str:
-    dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
+    #dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
+    dangerous = []
     if any(d in command for d in dangerous):
         return "Error: Dangerous command blocked"
     try:
@@ -142,14 +150,20 @@ PARENT_TOOLS = CHILD_TOOLS + [
 
 def agent_loop(messages: list):
     while True:
+        breakpoint()
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=PARENT_TOOLS, max_tokens=8000,
         )
         messages.append({"role": "assistant", "content": response.content})
+        print('\n'*4)
+        print('-' * 40)
+        print('messages: ')
+        js(messages)
         if response.stop_reason != "tool_use":
             return
         results = []
+        breakpoint()
         for block in response.content:
             if block.type == "tool_use":
                 if block.name == "task":

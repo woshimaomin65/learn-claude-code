@@ -25,9 +25,13 @@ import json
 import os
 import subprocess
 from pathlib import Path
+import readline
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
+def js(data):
+    print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
+
 
 load_dotenv(override=True)
 
@@ -35,9 +39,14 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+
+BASE_URL = os.getenv("BASE_URL", "https://coding.dashscope.aliyuncs.com/apps/anthropic")
+API_KEY = os.getenv("API_KEY", "sk-sp-9744b2d2a3834fe1875f74fc43689dbf")
+#MODEL = os.getenv("MODEL", "qwen3.5-plus")
+MODEL = os.getenv("MODEL", "MiniMax-M2.5")
+client = Anthropic(base_url=BASE_URL, api_key=API_KEY)
 TASKS_DIR = WORKDIR / ".tasks"
+
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use task tools to plan and track work."
 
@@ -213,6 +222,10 @@ def agent_loop(messages: list):
             tools=TOOLS, max_tokens=8000,
         )
         messages.append({"role": "assistant", "content": response.content})
+        print('\n'* 2)
+        print('-' * 40)
+        print('当前的返回结果是:')
+        js(response.content)
         if response.stop_reason != "tool_use":
             return
         results = []

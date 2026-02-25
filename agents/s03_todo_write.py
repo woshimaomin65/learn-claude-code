@@ -35,12 +35,13 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+BASE_URL = os.getenv("BASE_URL", "https://dashscope.aliyuncs.com/apps/anthropic")
+API_KEY = os.getenv("API_KEY", "sk-6cacbd1fc53f4c8ebd80fdfcfe75a533")
+MODEL = os.getenv("MODEL", "qwen3.5-plus")
+
+client = Anthropic(base_url=BASE_URL, api_key=API_KEY)
 
 SYSTEM = f"""You are a coding agent at {WORKDIR}.
 Use the todo tool to plan multi-step tasks. Mark in_progress before starting, completed when done.

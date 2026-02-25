@@ -25,17 +25,19 @@ policy, hooks, and lifecycle controls on top.
 
 import os
 import subprocess
+import readline  # Enables line editing (backspace, arrow keys, history)
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+# DashScope (Alibaba Cloud) Qwen Plus configuration with Anthropic-compatible API
+BASE_URL = os.getenv("BASE_URL", "https://dashscope.aliyuncs.com/apps/anthropic")
+API_KEY = os.getenv("API_KEY", "sk-6cacbd1fc53f4c8ebd80fdfcfe75a533")
+MODEL = os.getenv("MODEL", "qwen3.5-plus")
 
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+client = Anthropic(base_url=BASE_URL, api_key=API_KEY)
 
 SYSTEM = f"You are a coding agent at {os.getcwd()}. Use bash to solve tasks. Act, don't explain."
 
@@ -88,11 +90,24 @@ def agent_loop(messages: list):
 
 
 if __name__ == "__main__":
+    import atexit
+    
     history = []
+    
+    # Setup readline for persistent history
+    history_file = os.path.expanduser("~/.s01_agent_history")
+    try:
+        readline.read_history_file(history_file)
+    except FileNotFoundError:
+        pass
+    readline.set_history_length(1000)
+    atexit.register(readline.write_history_file, history_file)
+    
     while True:
         try:
             query = input("\033[36ms01 >> \033[0m")
         except (EOFError, KeyboardInterrupt):
+            print()  # Newline after Ctrl+C
             break
         if query.strip().lower() in ("q", "exit", ""):
             break

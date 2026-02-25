@@ -27,17 +27,7 @@ import os
 import subprocess
 import readline  # Enables line editing (backspace, arrow keys, history)
 
-from anthropic import Anthropic
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
-
-# DashScope (Alibaba Cloud) Qwen Plus configuration with Anthropic-compatible API
-BASE_URL = os.getenv("BASE_URL", "https://dashscope.aliyuncs.com/apps/anthropic")
-API_KEY = os.getenv("API_KEY", "sk-6cacbd1fc53f4c8ebd80fdfcfe75a533")
-MODEL = os.getenv("MODEL", "qwen3.5-plus")
-
-client = Anthropic(base_url=BASE_URL, api_key=API_KEY)
+from llm_config import client, MODEL
 
 SYSTEM = f"You are a coding agent at {os.getcwd()}. Use bash to solve tasks. Act, don't explain."
 

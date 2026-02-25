@@ -222,3 +222,5 @@ web/out/
 .env*.local
 test_providers.py
 .DS_Store
+settings.json
+extensions.json

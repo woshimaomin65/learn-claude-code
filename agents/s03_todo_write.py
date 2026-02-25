@@ -29,6 +29,7 @@ Key insight: "The agent can track its own progress -- and I can see it."
 import os
 import subprocess
 from pathlib import Path
+import readline
 
 from anthropic import Anthropic
 from dotenv import load_dotenv

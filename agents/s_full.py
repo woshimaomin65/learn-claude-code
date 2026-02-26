@@ -46,6 +46,8 @@ from pathlib import Path
 from queue import Queue
 
 from llm_config import client, MODEL
+import readline  # Enables line editing (backspace, arrow keys, history)
+from glob import glob
 
 WORKDIR = Path.cwd()
 
@@ -62,6 +64,8 @@ VALID_MSG_TYPES = {"message", "broadcast", "shutdown_request",
                    "shutdown_response", "plan_approval_response"}
 
 
+def js(data):
+    print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
 # === SECTION: base_tools ===
 def safe_path(p: str) -> Path:
     path = (WORKDIR / p).resolve()
@@ -188,30 +192,84 @@ def run_subagent(prompt: str, agent_type: str = "Explore") -> str:
 
 
 # === SECTION: skills (s05) ===
+#class SkillLoader:
+#    def __init__(self, skills_dir: Path):
+#        self.skills = {}
+#        for f in sorted(skills_dir.glob("*.md")):
+#            text = f.read_text()
+#            match = re.match(r"^---\n(.*?)\n---\n(.*)", text, re.DOTALL)
+#            meta, body = {}, text
+#            if match:
+#                for line in match.group(1).strip().splitlines():
+#                    if ":" in line:
+#                        k, v = line.split(":", 1)
+#                        meta[k.strip()] = v.strip()
+#                body = match.group(2).strip()
+#            self.skills[f.stem] = {"meta": meta, "body": body}
+#
+#
+#        for _dir in sorted(glob(f"{skills_dir}/*")):
+#            for f in glob(f'{_dir}/*.md'):
+#                name = Path(f.rsplit('/', 1)[0]).stem
+#                text = Path(f).read_text()
+#                meta, body = self._parse_frontmatter(text)
+#                self.skills[name] = {"meta": meta, "body": body, "path": str(f)}
+
 class SkillLoader:
     def __init__(self, skills_dir: Path):
+        self.skills_dir = skills_dir
         self.skills = {}
-        if skills_dir.exists():
-            for f in sorted(skills_dir.glob("*.md")):
-                text = f.read_text()
-                match = re.match(r"^---\n(.*?)\n---\n(.*)", text, re.DOTALL)
-                meta, body = {}, text
-                if match:
-                    for line in match.group(1).strip().splitlines():
-                        if ":" in line:
-                            k, v = line.split(":", 1)
-                            meta[k.strip()] = v.strip()
-                    body = match.group(2).strip()
-                self.skills[f.stem] = {"meta": meta, "body": body}
+        self._load_all()
+
+    def _load_all(self):
+        #for f in sorted(self.skills_dir.glob("*.md")):
+        for _dir in sorted(glob(f"{self.skills_dir}/*")):
+            for f in glob(f'{_dir}/*.md'):
+                name = Path(f.rsplit('/', 1)[0]).stem
+                text = Path(f).read_text()
+                meta, body = self._parse_frontmatter(text)
+                self.skills[name] = {"meta": meta, "body": body, "path": str(f)}
+
+    def _parse_frontmatter(self, text: str) -> tuple:
+        """Parse YAML frontmatter between --- delimiters."""
+        match = re.match(r"^---\n(.*?)\n---\n(.*)", text, re.DOTALL)
+        if not match:
+            return {}, text
+        meta = {}
+        for line in match.group(1).strip().splitlines():
+            if ":" in line:
+                key, val = line.split(":", 1)
+                meta[key.strip()] = val.strip()
+        return meta, match.group(2).strip()
 
     def descriptions(self) -> str:
-        if not self.skills: return "(no skills)"
-        return "\n".join(f"  - {n}: {s['meta'].get('description', '-')}" for n, s in self.skills.items())
+        """Layer 1: short descriptions for the system prompt."""
+        if not self.skills:
+            return "(no skills available)"
+        lines = []
+        for name, skill in self.skills.items():
+            desc = skill["meta"].get("description", "No description")
+            tags = skill["meta"].get("tags", "")
+            line = f"  - {name}: {desc}"
+            if tags:
+                line += f" [{tags}]"
+            lines.append(line)
+        return "\n".join(lines)
 
     def load(self, name: str) -> str:
-        s = self.skills.get(name)
-        if not s: return f"Error: Unknown skill '{name}'. Available: {', '.join(self.skills.keys())}"
-        return f"<skill name=\"{name}\">\n{s['body']}\n</skill>"
+        """Layer 2: full skill body returned in tool_result."""
+        skill = self.skills.get(name)
+        if not skill:
+            return f"Error: Unknown skill '{name}'. Available: {', '.join(self.skills.keys())}"
+        return f"<skill name=\"{name}\">\n{skill['body']}\n</skill>"
+    #def descriptions(self) -> str:
+    #    if not self.skills: return "(no skills)"
+    #    return "\n".join(f"  - {n}: {s['meta'].get('description', '-')}" for n, s in self.skills.items())
+
+    #def load(self, name: str) -> str:
+    #    s = self.skills.get(name)
+    #    if not s: return f"Error: Unknown skill '{name}'. Available: {', '.join(self.skills.keys())}"
+    #    return f"<skill name=\"{name}\">\n{s['body']}\n</skill>"
 
 
 # === SECTION: compression (s06) ===
@@ -543,10 +601,14 @@ TEAM = TeammateManager(BUS, TASK_MGR)
 
 # === SECTION: system_prompt ===
 SYSTEM = f"""You are a coding agent at {WORKDIR}. Use tools to solve tasks.
-Prefer task_create/task_update/task_list for multi-step work. Use TodoWrite for short checklists.
-Use task for subagent delegation. Use load_skill for specialized knowledge.
-Skills: {SKILLS.descriptions()}"""
 
+Workflow:
+1. First, review available skills: {SKILLS.descriptions()}
+2. If a skill matches the task, use load_skill to apply it directly.
+3. If no skill matches, create a plan using task_create/task_update/task_list for multi-step work, or TodoWrite for short checklists.
+4. Use task for subagent delegation when needed.
+
+Skills: {SKILLS.descriptions()}"""
 
 # === SECTION: shutdown_protocol (s10) ===
 def handle_shutdown_request(teammate: str) -> str:
@@ -663,10 +725,15 @@ def agent_loop(messages: list):
             messages.append({"role": "user", "content": f"<inbox>{json.dumps(inbox, indent=2)}</inbox>"})
             messages.append({"role": "assistant", "content": "Noted inbox messages."})
         # LLM call
+        client.auth_token = client.api_key
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
+        print('\n'*2)
+        print('-'*40)
+        print('模型的输出:')
+        js(response.content)
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
             return

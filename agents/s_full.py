@@ -603,10 +603,11 @@ TEAM = TeammateManager(BUS, TASK_MGR)
 SYSTEM = f"""You are a coding agent at {WORKDIR}. Use tools to solve tasks.
 
 Workflow:
-1. First, review available skills: {SKILLS.descriptions()}
-2. If a skill matches the task, use load_skill to apply it directly.
-3. If no skill matches, create a plan using task_create/task_update/task_list for multi-step work, or TodoWrite for short checklists.
-4. Use task for subagent delegation when needed.
+1. When you receive a task, FIRST use load_skill with name="task-decomposer" to analyze and break down the task into a structured plan.
+2. After task decomposition, review available skills: {SKILLS.descriptions()}
+3. If a skill matches the task, use load_skill to apply it directly.
+4. If no skill matches, create a plan using task_create/task_update/task_list for multi-step work, or TodoWrite for short checklists.
+5. Use task for subagent delegation when needed.
 
 Skills: {SKILLS.descriptions()}"""
 

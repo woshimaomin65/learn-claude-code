@@ -20,7 +20,8 @@ from anthropic import Anthropic
 BASE_URL = os.getenv("BASE_URL", "https://coding.dashscope.aliyuncs.com/apps/anthropic")
 API_KEY = os.getenv("API_KEY", "sk-sp-9744b2d2a3834fe1875f74fc43689dbf")
 #MODEL = os.getenv("MODEL", "qwen3.5-plus")
-MODEL = os.getenv("MODEL", "MiniMax-M2.5")
+#MODEL = os.getenv("MODEL", "MiniMax-M2.5")
+MODEL = os.getenv("MODEL", "glm-5")
 
 # 初始化 Anthropic 客户端
 client = Anthropic(base_url=BASE_URL, api_key=API_KEY)

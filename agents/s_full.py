@@ -64,7 +64,6 @@ def setup_logging():
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
 
-LOG_DIR = setup_logging()
 
 def generate_log_filename(agent_name: str = "main") -> str:
     """Generate a timestamped log filename."""
@@ -82,16 +81,19 @@ def parse_content_block(block: Any) -> Dict[str, Any]:
     - other: Any other block type
     """
     result = {"type": getattr(block, "type", "unknown")}
+    bad_flag = False
+    if hasattr(block, "type"):
+        if block.type == "text":
+            result["text"] = getattr(block, "text", "")
     
-    if block.type == "text":
-        result["text"] = getattr(block, "text", "")
+        elif block.type == "tool_use":
+            result["tool_name"] = getattr(block, "name", "unknown")
+            result["tool_input"] = getattr(block, "input", {})
+            result["tool_id"] = getattr(block, "id", "")
+        else:
+            bad_flag = True
     
-    elif block.type == "tool_use":
-        result["tool_name"] = getattr(block, "name", "unknown")
-        result["tool_input"] = getattr(block, "input", {})
-        result["tool_id"] = getattr(block, "id", "")
-    
-    else:
+    elif bad_flag or not hasattr(block, "type"):
         # Fallback: convert to dict or string
         try:
             result["data"] = str(block)
@@ -207,6 +209,7 @@ class AgentLogger:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 WORKDIR = Path.cwd()
+LOG_DIR = setup_logging()
 
 # Output directory for saving query results
 OUTPUT_DIR = Path("/Users/maomin/programs/vscode/learn-claude-code/agents/data/output")

@@ -1,0 +1,10 @@
+# Browser MCP Server Dependencies
+
+# MCP SDK
+mcp>=1.0.0
+
+# Playwright - 浏览器自动化
+playwright>=1.40.0
+
+# Async support
+asyncio>=3.4.3

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "browser": {
+      "command": "python",
+      "args": [
+        "/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/browser-mcp/server.py"
+      ],
+      "env": {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
+      }
+    }
+  }
+}

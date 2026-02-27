@@ -2,57 +2,73 @@
 
 ## 概述
 
-此技能提供完整的网页浏览和信息检索能力，通过 MCP (Model Context Protocol) 与两个互补的服务器交互：
+此技能提供完整的网页浏览和信息检索能力。**核心搜索功能已统一使用 `tavily-search`**，提供更快速、更准确的 AI 优化搜索体验。
 
-| MCP 服务器 | 优势 | 适用场景 |
-|-----------|------|---------|
-| **mcp-fetch** | 快速、轻量、低资源 | 静态网页、API 调用、文档读取 |
-| **browser-mcp** | 完整浏览器渲染、支持交互 | 动态网页 (SPA)、JavaScript 渲染、网页自动化 |
+### MCP 服务器对比
 
-## MCP 服务器配置
+| MCP 服务器 | 状态 | 优势 | 适用场景 |
+|-----------|------|------|---------|
+| **tavily-search** | ✅ **推荐/默认** | AI 优化、快速、结构化结果 | 信息检索、事实核查、新闻搜索、研究查询 |
+| **mcp-fetch** | ⚠️ 备选/逐步废弃 | 获取指定 URL 内容 | 已知 URL 的内容提取、API 调用 |
+| **browser-mcp** | ⚠️ 备选/仅特殊场景 | 完整浏览器渲染、支持交互 | JavaScript 渲染页面、需要截图/交互的场景 |
 
-### 1. mcp-fetch 配置（静态网页/API）
+---
+
+## 🎯 首选方案：tavily-search（强烈推荐）
+
+**90% 的网页浏览任务应使用 tavily-search**，它专为 AI 助手优化，提供：
+
+- ✅ 快速准确的搜索结果
+- ✅ 结构化的数据输出（答案摘要 + 详细结果）
+- ✅ 自动提取关键信息
+- ✅ 支持新闻搜索和事实核查
+- ✅ 低资源消耗，无需浏览器
+
+### 配置
 
 ```json
 {
   "mcpServers": {
-    "fetch": {
+    "tavily-search": {
       "command": "node",
-      "args": ["/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch/dist/index.js"],
-      "env": {}
-    }
-  }
-}
-```
-
-### 2. browser-mcp 配置（动态网页/交互）
-
-```json
-{
-  "mcpServers": {
-    "browser": {
-      "command": "python",
-      "args": ["/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/browser-mcp/server.py"],
+      "args": ["/Users/maomin/programs/gitcode/learn-claude-code/agents/mcps/tavily-search/index.js"],
       "env": {
-        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
+        "TAVILY_API_KEY": "your-api-key-here"
       }
     }
   }
 }
 ```
 
-### 完整配置示例
+### 可用工具
+
+| 工具 | 用途 | 示例 |
+|------|------|------|
+| `tavily_search` | 通用网页搜索 | 搜索最新技术文档、产品信息 |
+| `tavily_news` | 新闻搜索 | 获取最新行业动态、时事新闻 |
+| `tavily_fact_check` | 事实核查 | 验证信息真实性 |
+
+---
+
+## 🔧 备选方案：mcp-fetch（逐步废弃）
+
+> ⚠️ **废弃计划**: 该工具将在未来版本中完全移除。请优先使用 `tavily_search` 代替。
+
+### 保留使用场景
+
+仅在以下情况使用：
+- 需要获取**已知特定 URL**的内容
+- 调用 REST API 获取 JSON 数据
+- 内部网络资源访问
+
+### 配置
 
 ```json
 {
   "mcpServers": {
     "fetch": {
       "command": "node",
-      "args": ["/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch/dist/index.js"]
-    },
-    "browser": {
-      "command": "python",
-      "args": ["/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/browser-mcp/server.py"]
+      "args": ["/Users/maomin/programs/gitcode/learn-claude-code/agents/mcps/mcp-fetch/dist/index.js"]
     }
   }
 }
@@ -60,463 +76,521 @@
 
 ---
 
-## 工具选择决策树
+## 🌐 备选方案：browser-mcp（特殊场景）
 
-```
-需要访问网页内容？
-    │
-    ├── 是静态内容/文章/API？
-    │   └──→ 使用 mcp-fetch (fetch_url / fetch_json)
-    │
-    ├── 页面需要 JavaScript 渲染？
-    │   └──→ 使用 browser-mcp (browser_navigate + browser_get_content)
-    │
-    ├── 需要截图？
-    │   └──→ 使用 browser-mcp (browser_screenshot)
-    │
-    ├── 需要点击/输入等交互？
-    │   └──→ 使用 browser-mcp (browser_click / browser_fill)
-    │
-    └── 需要执行自定义 JS？
-        └──→ 使用 browser-mcp (browser_evaluate)
-```
+> ⚠️ **仅限必要场景使用**: 浏览器占用资源大、速度慢，仅在 tavily-search 和 mcp-fetch 无法满足需求时使用。
 
----
+### 保留使用场景
 
-## mcp-fetch 工具（静态网页/API）
+- 需要**网页截图**
+- 需要与页面**交互**（点击、填写表单）
+- 页面内容**完全由 JavaScript 动态生成**且无法通过 API 获取
+- 需要执行**自定义 JavaScript**提取数据
 
-### 1. fetch_url
+### 配置
 
-**用途**: 获取网页内容并转换为 Markdown 格式。适合读取文章、文档、博客等文本内容。
-
-**参数**:
-- `url` (string, 必填): 要获取的网页 URL
-- `timeout` (number, 可选): 请求超时时间（毫秒），默认 30000
-
-**示例**:
-```
-fetch_url({
-  "url": "https://example.com/article"
-})
-```
-
-### 2. fetch_url_raw
-
-**用途**: 获取网页的原始 HTML 内容。适合需要分析 HTML 结构的场景。
-
-**参数**:
-- `url` (string, 必填): 要获取的网页 URL
-- `timeout` (number, 可选): 请求超时时间（毫秒），默认 30000
-
-### 3. fetch_json
-
-**用途**: 获取 JSON 格式的 API 响应。适合调用 REST API。
-
-**参数**:
-- `url` (string, 必填): API 的 URL
-- `method` (string, 可选): HTTP 方法，GET/POST/PUT/DELETE，默认 GET
-- `body` (object, 可选): 请求体（JSON 对象）
-- `headers` (object, 可选): 自定义请求头
-- `timeout` (number, 可选): 请求超时时间（毫秒），默认 30000
-
-### 4. search_text
-
-**用途**: 在网页内容中搜索指定文本，返回包含搜索词的上下文片段。
-
-**参数**:
-- `url` (string, 必填): 要搜索的网页 URL
-- `query` (string, 必填): 要搜索的文本
-- `contextSize` (number, 可选): 每个匹配项周围的上下文大小（字符数），默认 200
-- `maxResults` (number, 可选): 最大返回结果数，默认 10
-- `timeout` (number, 可选): 请求超时时间（毫秒），默认 30000
-
----
-
-## browser-mcp 工具（动态网页/交互）
-
-### 1. browser_navigate
-
-**用途**: 导航到指定 URL 并等待页面加载完成，支持 JavaScript 渲染。
-
-**参数**:
-- `url` (string, 必填): 要访问的网址
-- `wait_until` (string, 可选): 等待策略
-  - `"load"`: 等待 load 事件
-  - `"domcontentloaded"`: 等待 DOMContentLoaded 事件
-  - `"networkidle"`: 等待网络连接空闲（推荐）
-  - `"commit"`: 等待网络响应接收完成
-
-**返回**:
 ```json
 {
-  "success": true,
-  "url": "https://example.com",
-  "title": "Example Domain",
-  "status": 200
+  "mcpServers": {
+    "browser": {
+      "command": "python",
+      "args": ["/Users/maomin/programs/gitcode/learn-claude-code/agents/mcps/browser-mcp/server.py"],
+      "env": {
+        "PATH": "/usr/bin:/bin:/usr/local/bin"
+      }
+    }
+  }
 }
 ```
 
+---
+
+## 工具选择决策树（2024 版）
+
+```
+需要获取网络信息？
+    │
+    ├── 搜索信息/查找资料/验证事实？
+    │   └──→ ✅ 使用 tavily-search（首选）
+    │       ├── tavily_search - 通用搜索
+    │       ├── tavily_news - 新闻搜索
+    │       └── tavily_fact_check - 事实核查
+    │
+    ├── 需要获取已知 URL 的内容？
+    │   ├── 是 API 或静态页面
+    │   │   └──→ ⚠️ 使用 mcp-fetch（备选）
+    │   │       ├── fetch_url - 获取 Markdown
+    │   │       └── fetch_json - 获取 JSON
+    │   │
+    │   └── 是动态页面/需要截图/需要交互？
+    │       └──→ ⚠️ 使用 browser-mcp（仅特殊场景）
+    │           ├── browser_navigate + browser_get_content
+    │           ├── browser_screenshot
+    │           └── browser_click/fill - 交互
+    │
+    └── 需要实时数据/股票/天气？
+        ├── 有官方 API
+        │   └──→ ⚠️ 使用 mcp-fetch fetch_json
+        │
+        └── 无 API，需要抓取网页
+            └──→ 尝试 tavily_search（可能已有缓存）
+```
+
+---
+
+## tavily-search 详细使用指南
+
+### 1. tavily_search - 通用网页搜索
+
+**最佳实践**: 90% 的搜索任务使用此工具
+
+**参数**:
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| query | string | 是 | - | 搜索查询，支持自然语言 |
+| maxResults | number | 否 | 5 | 结果数量（1-10） |
+| searchDepth | enum | 否 | basic | basic=快速，advanced=深度 |
+| includeDomains | array | 否 | [] | 限定搜索的域名 |
+| excludeDomains | array | 否 | [] | 排除的域名 |
+
 **示例**:
 ```
+// 搜索最新 AI 技术
+tavily_search({
+  "query": "2024 年最新 AI 技术发展",
+  "maxResults": 5,
+  "searchDepth": "basic"
+})
+
+// 限定在特定网站搜索
+tavily_search({
+  "query": "React hooks 最佳实践",
+  "includeDomains": ["react.dev", "github.com"],
+  "maxResults": 5
+})
+
+// 排除低质量来源
+tavily_search({
+  "query": "Python async 教程",
+  "excludeDomains": ["medium.com", "blog.csdn.net"],
+  "searchDepth": "advanced"
+})
+```
+
+### 2. tavily_news - 新闻搜索
+
+**最佳实践**: 获取最新新闻、行业动态、时事信息
+
+**参数**:
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| query | string | 是 | - | 新闻搜索查询 |
+| maxResults | number | 否 | 10 | 结果数量（1-10） |
+| days | number | 否 | - | 限制最近 N 天 |
+
+**示例**:
+```
+// 搜索最近 7 天的 AI 新闻
+tavily_news({
+  "query": "人工智能 大模型",
+  "maxResults": 10,
+  "days": 7
+})
+
+// 搜索特定行业动态
+tavily_news({
+  "query": "电动汽车 销量",
+  "days": 30
+})
+```
+
+### 3. tavily_fact_check - 事实核查
+
+**最佳实践**: 验证信息真实性、获取权威来源确认
+
+**参数**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| claim | string | 是 | 需要核实的信息 |
+
+**示例**:
+```
+// 验证某个声明
+tavily_fact_check({
+  "claim": "GPT-5 已经正式发布"
+})
+
+// 核实新闻真实性
+tavily_fact_check({
+  "claim": "某公司宣布裁员 50%"
+})
+```
+
+---
+
+## mcp-fetch 工具参考（备选）
+
+> ⚠️ 仅当 tavily-search 无法满足需求时使用
+
+### fetch_url
+
+获取网页内容并转换为 Markdown。
+
+```
+fetch_url({
+  "url": "https://example.com/article",
+  "timeout": 30000
+})
+```
+
+### fetch_json
+
+调用 REST API 获取 JSON 数据。
+
+```
+fetch_json({
+  "url": "https://api.example.com/data",
+  "method": "GET",
+  "headers": {
+    "Authorization": "Bearer token"
+  }
+})
+```
+
+### search_text
+
+在网页中搜索特定文本。
+
+```
+search_text({
+  "url": "https://example.com",
+  "query": "关键词",
+  "maxResults": 10
+})
+```
+
+---
+
+## browser-mcp 工具参考（特殊场景）
+
+> ⚠️ 仅在需要截图、交互或 JavaScript 渲染时使用
+
+### browser_navigate
+
+导航到 URL 并等待页面加载。
+
+```
 browser_navigate({
-  "url": "https://github.com/trending",
+  "url": "https://example.com",
   "wait_until": "networkidle"
 })
 ```
 
-### 2. browser_screenshot
+### browser_screenshot
 
-**用途**: 截取当前页面的截图（支持完整页面）。
+截取页面截图。
 
-**参数**:
-- `full_page` (boolean, 可选): 是否截取完整页面（包括滚动区域），默认 true
-
-**返回**:
-```json
-{
-  "success": true,
-  "image": "data:image/png;base64,...",
-  "width": 1280,
-  "height": 720
-}
-```
-
-**示例**:
 ```
 browser_screenshot({
   "full_page": true
 })
 ```
 
-### 3. browser_get_content
+### browser_get_content
 
-**用途**: 获取当前页面的文本内容，可选 CSS 选择器过滤。
+获取页面内容。
 
-**参数**:
-- `selector` (string, 可选): CSS 选择器，如 `"article"` 或 `".content"`
-
-**返回**:
-```json
-{
-  "success": true,
-  "content": "页面文本内容...",
-  "url": "https://example.com",
-  "title": "Example Domain"
-}
 ```
-
-**示例**:
-```
-browser_get_content()  // 获取整个页面
-browser_get_content({ "selector": "article h1" })  // 获取文章标题
-```
-
-### 4. browser_click
-
-**用途**: 点击页面上的元素。
-
-**参数**:
-- `selector` (string, 必填): CSS 选择器，如 `"button#submit"` 或 `"text=\"登录\""`
-
-**示例**:
-```
-browser_click({
-  "selector": "button[type=\"submit\"]"
+browser_get_content({
+  "selector": "article"  // 可选
 })
 ```
 
-### 5. browser_fill
+### browser_click / browser_fill
 
-**用途**: 在输入框中填写内容。
+页面交互操作。
 
-**参数**:
-- `selector` (string, 必填): 输入框的 CSS 选择器
-- `value` (string, 必填): 要填写的值
-
-**示例**:
 ```
 browser_fill({
-  "selector": "input[name=\"username\"]",
-  "value": "test@example.com"
+  "selector": "input[name=username]",
+  "value": "test"
+})
+
+browser_click({
+  "selector": "button#submit"
 })
 ```
 
-### 6. browser_evaluate
+### browser_evaluate
 
-**用途**: 在页面上下文中执行 JavaScript 代码。
+执行 JavaScript。
 
-**参数**:
-- `javascript` (string, 必填): 要执行的 JavaScript 代码
-
-**示例**:
 ```
 browser_evaluate({
-  "javascript": "document.querySelectorAll('a').length"
+  "javascript": "document.title"
 })
 ```
 
-### 7. browser_wait
+### browser_close
 
-**用途**: 等待指定时间或等待元素出现。
+关闭浏览器（重要！使用后必须调用）。
 
-**参数**:
-- `time_ms` (number, 可选): 等待的毫秒数
-- `selector` (string, 可选): CSS 选择器，等待该元素出现
-
-**示例**:
 ```
-browser_wait({ "time_ms": 2000 })  // 等待 2 秒
-browser_wait({ "selector": ".loaded-content" })  // 等待元素
+browser_close()
 ```
-
-### 8. browser_get_tabs_info
-
-**用途**: 获取当前浏览器标签页的信息。
-
-**返回**:
-```json
-{
-  "success": true,
-  "current_url": "https://example.com",
-  "current_title": "Page Title"
-}
-```
-
-### 9. browser_close
-
-**用途**: 关闭浏览器并释放资源。
 
 ---
 
-## 使用场景对比
+## 迁移指南：从旧工具到 tavily-search
 
-| 场景 | 推荐工具 | 理由 |
-|------|---------|------|
-| **阅读静态文章/博客** | `fetch_url` | 快速，自动转 Markdown |
-| **调用 REST API** | `fetch_json` | 直接获取结构化数据 |
-| **GitHub Trending** | `browser_navigate` + `browser_get_content` | 页面动态渲染 |
-| **知乎/社交媒体** | `browser_navigate` + `browser_get_content` | 需要 JS 执行 |
-| **网页截图** | `browser_screenshot` | 唯一支持截图 |
-| **登录/表单提交** | `browser_fill` + `browser_click` | 需要交互 |
-| **单页应用 (SPA)** | `browser_navigate` | 等待路由加载 |
-| **数据可视化页面** | `browser_evaluate` | 提取图表数据 |
-| **搜索结果页面** | `browser_navigate` + `browser_get_content` | 动态加载结果 |
-| **API 文档** | `fetch_url` | 静态内容，速度快 |
-| **金融数据** | `fetch_json` | 实时 API 数据 |
-| **学术论文** | `fetch_url` 或 `browser_navigate` | 根据网站类型选择 |
+### 场景 1：搜索信息
+
+**旧方式**（废弃）:
+```
+1. 使用搜索引擎打开网页
+2. browser_navigate 到搜索结果页
+3. browser_get_content 提取内容
+```
+
+**新方式**（推荐）:
+```
+tavily_search({
+  "query": "你的搜索查询",
+  "maxResults": 5
+})
+```
+
+### 场景 2：查找最新新闻
+
+**旧方式**（废弃）:
+```
+1. browser_navigate 到新闻网站
+2. browser_get_content 提取新闻
+```
+
+**新方式**（推荐）:
+```
+tavily_news({
+  "query": "主题",
+  "days": 7
+})
+```
+
+### 场景 3：验证信息
+
+**旧方式**（废弃）:
+```
+1. 手动搜索多个来源
+2. 逐个打开网页比对
+```
+
+**新方式**（推荐）:
+```
+tavily_fact_check({
+  "claim": "需要验证的信息"
+})
+```
+
+### 场景 4：访问已知 URL
+
+**保持不变**（无替代方案）:
+```
+fetch_url({
+  "url": "https://example.com/specific-page"
+})
+```
 
 ---
 
-## 最佳实践
+## 使用场景对比表
 
-### 1. 优先使用 mcp-fetch（更快更轻）
+| 任务类型 | 首选工具 | 备选工具 | 废弃方案 |
+|---------|---------|---------|---------|
+| **搜索信息/研究** | ✅ tavily_search | - | ❌ browser + 搜索引擎 |
+| **查找新闻** | ✅ tavily_news | - | ❌ browser + 新闻网站 |
+| **事实核查** | ✅ tavily_fact_check | - | ❌ 手动多站点验证 |
+| **技术文档** | ✅ tavily_search | fetch_url | - |
+| **API 调用** | - | ✅ fetch_json | - |
+| **已知 URL 内容** | - | ✅ fetch_url | - |
+| **网页截图** | - | - | ✅ browser_screenshot |
+| **表单提交/登录** | - | - | ✅ browser_fill + browser_click |
+| **动态数据提取** | ✅ tavily_search | browser_evaluate | - |
+| **单页应用** | ✅ tavily_search | browser_navigate | - |
+
+---
+
+## 性能对比
+
+| 指标 | tavily-search | mcp-fetch | browser-mcp |
+|------|--------------|-----------|-------------|
+| **响应速度** | ⚡ 快 (1-3 秒) | ⚡ 快 (1-2 秒) | 🐌 慢 (5-15 秒) |
+| **资源消耗** | 💚 低 | 💚 低 | 🔴 高 |
+| **结果质量** | ⭐⭐⭐⭐⭐ AI 优化 | ⭐⭐⭐ 原始内容 | ⭐⭐⭐⭐ 完整内容 |
+| **准确率** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
+| **易用性** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+
+---
+
+## 最佳实践（2024 版）
+
+### 1. 默认使用 tavily-search
 
 ```
-✅ 首选：fetch_url({ url: "https://docs.python.org/3/" })
-✅ 备选：browser_navigate + browser_get_content（仅当 fetch 失败时）
+✅ 90% 的场景使用 tavily_search / tavily_news / tavily_fact_check
 ```
 
-### 2. 识别动态网页
+### 2. 仅在必要时使用备选工具
 
-以下特征表明需要使用 browser-mcp：
-- 页面内容通过 JavaScript 加载
-- 滚动时动态加载更多内容（无限滚动）
-- 需要登录才能查看内容
-- 单页应用（URL 变化但页面不刷新）
-- 大量交互元素（按钮、表单）
-
-### 3. browser-mcp 使用模式
-
-**基本浏览模式**:
 ```
-1. browser_navigate({ url: "https://..." })
-2. browser_get_content() 或 browser_screenshot()
-3. browser_close()  // 完成后关闭
+✅ 需要获取特定 URL → fetch_url
+✅ 需要调用 API → fetch_json  
+✅ 需要截图 → browser_screenshot
+✅ 需要交互 → browser_fill + browser_click
 ```
 
-**交互模式**:
-```
-1. browser_navigate({ url: "https://..." })
-2. browser_fill({ selector: "...", value: "..." })
-3. browser_click({ selector: "..." })
-4. browser_wait({ time_ms: 2000 })
-5. browser_get_content()
-6. browser_close()
-```
+### 3. 避免的模式（已废弃）
 
-**数据提取模式**:
 ```
-1. browser_navigate({ url: "https://..." })
-2. browser_evaluate({ javascript: "..." })
-3. browser_close()
+❌ 不要使用 browser 打开搜索引擎搜索结果
+❌ 不要使用 browser 逐个访问多个网页搜索信息
+❌ 不要使用 browser 获取已有 API 的数据
 ```
 
 ### 4. 资源管理
 
-- browser-mcp 会占用较多内存，使用完毕后调用 `browser_close()`
-- 连续访问多个页面时，可以复用浏览器会话
-- mcp-fetch 无状态，可随时调用
-
-### 5. 错误处理策略
-
 ```
-如果 fetch_url 失败:
-1. 检查是否是动态网页 → 尝试 browser_navigate
-2. 检查 URL 是否正确
-3. 尝试 fetch_url_raw 获取原始 HTML
-4. 寻找官方 API 替代
-
-如果 browser_navigate 失败:
-1. 增加 wait_until 等待时间
-2. 检查是否需要先处理 Cookie/登录
-3. 尝试不同的等待策略
+✅ tavily-search: 无状态，随时调用
+✅ mcp-fetch: 无状态，随时调用
+⚠️ browser-mcp: 使用后必须 browser_close()
 ```
-
----
-
-## 限制与注意事项
-
-### mcp-fetch 限制
-
-| 限制 | 说明 | 解决方案 |
-|------|------|---------|
-| JavaScript 渲染 | 无法执行 JS，只能获取初始 HTML | 使用 browser-mcp |
-| 登录墙 | 无法访问需要登录的内容 | 使用 browser-mcp + 手动登录 |
-| 反爬虫 | 部分网站会阻止自动化访问 | 降低频率，使用 API |
-
-### browser-mcp 限制
-
-| 限制 | 说明 | 解决方案 |
-|------|------|---------|
-| 速度较慢 | 浏览器启动和渲染需要时间 | 优先使用 mcp-fetch |
-| 资源消耗 | 占用较多内存和 CPU | 及时调用 browser_close() |
-| 反自动化 | 某些网站检测自动化工具 | 使用真实用户代理 |
-| 超时 | 默认 30 秒超时 | 增加 wait 时间 |
 
 ---
 
 ## 故障排除
 
-### 问题：fetch_url 返回空内容
+### 问题：tavily_search 返回结果不理想
 
-**可能原因**: 页面是 JavaScript 渲染的
+**解决方案**:
+```
+1. 优化查询语句，使用更具体的关键词
+2. 增加 searchDepth: "advanced"
+3. 使用 includeDomains 限定高质量来源
+4. 如果获取特定 URL 内容，改用 fetch_url
+```
+
+### 问题：TAVILY_API_KEY 未设置
+
+**解决方案**:
+```bash
+export TAVILY_API_KEY="your-api-key"
+# 或在 MCP 配置文件中设置 env
+```
+
+获取 API Key: https://tavily.com/
+
+### 问题：fetch_url 无法获取动态内容
 
 **解决方案**:
 ```
 改用 browser-mcp:
-1. browser_navigate({ url: "https://...", wait_until: "networkidle" })
+1. browser_navigate({ url: "...", wait_until: "networkidle" })
 2. browser_get_content()
-```
-
-### 问题：browser_navigate 超时
-
-**解决方案**:
-```
-1. 增加等待策略：wait_until: "domcontentloaded"
-2. 手动等待：browser_wait({ time_ms: 5000 })
-3. 检查网络连接
-```
-
-### 问题：browser_click 找不到元素
-
-**解决方案**:
-```
-1. 先截图确认页面状态：browser_screenshot()
-2. 等待元素出现：browser_wait({ selector: "..." })
-3. 尝试其他选择器格式：text="按钮文本"
-```
-
-### 问题：MCP 服务器未响应
-
-**检查清单**:
-```bash
-# 检查 mcp-fetch
-node --version
-cd /Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch
-npm install && npm run build
-
-# 检查 browser-mcp
-python3 --version
-pip install mcp playwright
-playwright install chromium
-
-# 重启 Claude Desktop
+3. browser_close()
 ```
 
 ---
 
 ## 完整示例
 
-### 示例 1：抓取 GitHub Trending（动态页面）
+### 示例 1：研究技术趋势（推荐方式）
 
 ```
-任务：获取 GitHub Trending 上的热门项目
+任务：了解 2024 年 AI Agent 最新发展
 
-步骤:
-1. browser_navigate({ url: "https://github.com/trending", wait_until: "networkidle" })
-2. browser_get_content({ selector: "main" })
-3. browser_close()
+✅ 正确方式:
+tavily_search({
+  "query": "2024 AI Agent 最新发展 技术趋势",
+  "maxResults": 5,
+  "searchDepth": "advanced"
+})
+
+// 获取最新新闻
+tavily_news({
+  "query": "AI Agent",
+  "days": 30
+})
 ```
 
-### 示例 2：搜索知乎内容（动态页面）
+### 示例 2：验证信息真实性
 
 ```
-任务：在知乎上搜索 AI agent 相关内容
+任务：验证"某公司发布新产品"的消息
 
-步骤:
-1. browser_navigate({ url: "https://www.zhihu.com/search?q=AI+agent", wait_until: "networkidle" })
-2. browser_get_content()
-3. browser_close()
+✅ 正确方式:
+tavily_fact_check({
+  "claim": "某公司于 2024 年发布新产品 X"
+})
+
+// 或搜索相关新闻
+tavily_news({
+  "query": "某公司 新产品 X 发布",
+  "days": 7
+})
 ```
 
-### 示例 3：读取 API 文档（静态页面）
+### 示例 3：获取特定文档内容
 
 ```
-任务：读取 Python 官方文档
+任务：读取 React 官方文档中 Hooks 部分
 
-步骤:
-1. fetch_url({ url: "https://docs.python.org/3/library/asyncio.html" })
+✅ 方式 1 (tavily-search 优先):
+tavily_search({
+  "query": "React Hooks 官方文档",
+  "includeDomains": ["react.dev"]
+})
+
+✅ 方式 2 (已知 URL 时用 fetch):
+fetch_url({
+  "url": "https://react.dev/reference/react/useEffect"
+})
 ```
 
-### 示例 4：网页自动化（登录 + 操作）
+### 示例 4：需要截图的场景
 
 ```
-任务：登录网站并获取个人数据
+任务：保存网页当前状态
 
-步骤:
-1. browser_navigate({ url: "https://example.com/login" })
-2. browser_fill({ selector: "input[name=username]", value: "user" })
-3. browser_fill({ selector: "input[name=password]", value: "pass" })
-4. browser_click({ selector: "button[type=submit]" })
-5. browser_wait({ time_ms: 3000 })
-6. browser_navigate({ url: "https://example.com/dashboard" })
-7. browser_get_content()
-8. browser_close()
-```
-
-### 示例 5：截取网页截图
-
-```
-任务：保存网页当前状态的截图
-
-步骤:
-1. browser_navigate({ url: "https://example.com" })
-2. browser_screenshot({ full_page: true })
-3. browser_close()
+⚠️ 仅此时使用 browser-mcp:
+browser_navigate({ url: "https://example.com" })
+browser_screenshot({ full_page: true })
+browser_close()
 ```
 
 ---
 
 ## 相关文件
 
-- **mcp-fetch 服务器**: `/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch/`
-- **browser-mcp 服务器**: `/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/browser-mcp/`
-- **配置文件**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **tavily-search**: `/Users/maomin/programs/gitcode/learn-claude-code/agents/mcps/tavily-search/`
+- **mcp-fetch** (备选): `/Users/maomin/programs/gitcode/learn-claude-code/agents/mcps/mcp-fetch/`
+- **browser-mcp** (特殊场景): `/Users/maomin/programs/gitcode/learn-claude-code/agents/mcps/browser-mcp/`
+
+---
+
+## 废弃时间表
+
+| 时间 | 变更 |
+|------|------|
+| **2024-02-27** | tavily-search 作为默认搜索工具 |
+| **2024-03-01** | mcp-fetch 标记为备选，不再推荐用于搜索 |
+| **2024-03-01** | browser-mcp 仅限特殊场景使用 |
+| **2024-04-01** | 考虑完全移除搜索相关的 browser 使用场景 |
 
 ---
 
 ## 更新日志
 
-- **2024-02-27**: 整合 browser-mcp，增加动态网页浏览能力
-- **2024-02-27**: 添加工具选择决策树和场景对比表
-- **2024-02-27**: 更新 MCP 路径至 `mcps/` 目录结构
+- **2024-02-27**: 整合 tavily-search 作为核心搜索工具
+- **2024-02-27**: 标记 mcp-fetch 和 browser-mcp 为备选/特殊场景
+- **2024-02-27**: 更新工具选择决策树
+- **2024-02-27**: 添加迁移指南和废弃时间表
+- **2024-02-27**: 优化 MCP 路径至 gitcode 目录

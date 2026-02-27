@@ -157,11 +157,30 @@ def parse_messages_for_log(messages: List[Dict]) -> List[Dict]:
 class AgentLogger:
     """Logger for agent interactions."""
     
+    MAX_LOG_LINES = 100000  # Maximum number of lines to keep in log file
+    
     def __init__(self, agent_name: str = "main"):
         self.agent_name = agent_name
         self.log_file = generate_log_filename(agent_name)
         self.call_count = 0
         self._lock = threading.Lock()
+    
+    def _trim_log_if_needed(self, f):
+        """Trim log file to keep only the latest MAX_LOG_LINES entries.
+        
+        Args:
+            f: File object that has just been written to
+        """
+        f.flush()
+        f.seek(0)
+        lines = f.readlines()
+        
+        if len(lines) > self.MAX_LOG_LINES:
+            # Keep only the latest MAX_LOG_LINES
+            lines = lines[-self.MAX_LOG_LINES:]
+            f.seek(0)
+            f.truncate()
+            f.writelines(lines)
     
     def log_call(self, messages: List[Dict], response: Any, results: List = None):
         """
@@ -195,6 +214,7 @@ class AgentLogger:
         with self._lock:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(log_entry, ensure_ascii=False, indent=2) + "\n")
+                self._trim_log_if_needed(f)
     
     def log_tool_result(self, tool_name: str, result: str):
         """Log a tool execution result."""
@@ -207,6 +227,7 @@ class AgentLogger:
         with self._lock:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                self._trim_log_if_needed(f)
 
 WORKDIR = Path.cwd()
 LOG_DIR = setup_logging()

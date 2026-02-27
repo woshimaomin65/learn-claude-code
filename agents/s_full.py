@@ -1362,6 +1362,6 @@ if __name__ == "__main__":
                 result = extract_text_from_content(msg.get("content", ""))
                 break
         if result:
-            save_path = save_query_result(query, result, logger)
+            save_path = save_query_result(query, result, None)
             print(f"\033[90m{save_path}\033[0m", flush=True)
         print()

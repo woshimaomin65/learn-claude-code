@@ -1,6 +1,6 @@
 ---
 name: task-decomposer
-description: "Use this skill when you need to break down a user's complex task into a structured todo list, identify relevant skills, and suggest parallel execution or subagent strategies. This skill helps agents efficiently plan and execute multi-step tasks."
+description: "Use this skill when you need to break down a user's complex task into a structured todo list, identify relevant skills, and suggest parallel execution or subagent strategies. This skill helps agents efficiently plan and execute multi-step tasks. ALWAYS create a task folder in data/ directory to save final results after completing the user's request."
 license: Proprietary
 ---
 
@@ -456,7 +456,561 @@ TodoWrite(items: list) -> str
     └── task_create (复杂依赖)
     ↓
 执行并监控
+    ↓
+保存最终结果 → data/<任务关联文件夹>/
 ```
+
+---
+
+## 📁 任务结果保存规范 (重要)
+
+> ⚠️ **必须遵守**: 每次用户请求完成后，**必须**在 `data` 文件夹下创建一个与当前任务关联的文件夹，用于保存最终结果。
+
+### 文件夹命名规则
+
+| 任务类型 | 命名格式 | 示例 |
+|----------|----------|------|
+| 通用任务 | `task-<YYYYMMDD>-<简短描述>` | `task-20250101-data-analysis` |
+| 文件处理 | `<原文件名>-<处理类型>` | `sales-report-converted` |
+| 技能相关 | `<skill-name>-<日期>` | `pptx-20250101-brand-deck` |
+| 项目任务 | `project-<项目名>-<阶段>` | `project-website-v1` |
+
+### 文件夹结构
+
+```
+data/
+└── <任务文件夹>/
+    ├── README.md          # 任务说明和结果概述 (必需)
+    ├── output/            # 最终输出文件
+    ├── intermediate/      # 中间文件 (可选)
+    └── logs/              # 执行日志 (可选)
+```
+
+### README.md 模板
+
+```markdown
+# <任务名称>
+
+## 任务描述
+<用户原始请求的简述>
+
+## 执行时间
+- 开始：<日期时间>
+- 结束：<日期时间>
+
+## 使用的技能
+- <skill-1>
+- <skill-2>
+
+## 输出文件
+| 文件名 | 说明 |
+|--------|------|
+| xxxxx | 文件描述 |
+
+## 备注
+<其他需要说明的信息>
+```
+
+### 执行时机
+
+1. **任务开始时**: 创建任务文件夹和 README.md 骨架
+2. **任务进行中**: 将中间结果保存到 `intermediate/`
+3. **任务完成时**: 将最终结果保存到 `output/` 并更新 README.md
+
+### 示例代码
+
+```python
+# 1. 任务开始时创建文件夹
+import os
+from datetime import datetime
+
+date_str = datetime.now().strftime("%Y%m%d")
+task_folder = f"data/task-{date_str}-数据分析"
+os.makedirs(f"{task_folder}/output", exist_ok=True)
+os.makedirs(f"{task_folder}/intermediate", exist_ok=True)
+
+# 2. 创建 README.md
+readme_content = f"""# 数据分析任务
+
+## 任务描述
+分析销售数据并生成报告
+
+## 执行时间
+- 开始：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+- 结束：待完成
+
+## 使用的技能
+- xlsx
+- concurrent-execution
+
+## 输出文件
+待更新
+
+## 备注
+待补充
+"""
+write_file(f"{task_folder}/README.md", readme_content)
+
+# 3. 任务完成时更新 README 并保存结果
+# ... 执行任务 ...
+write_file(f"{task_folder}/output/final-report.xlsx", result)
+```
+
+### 保存最终结果的 Checklist
+
+- [ ] 创建 `data/<任务文件夹>/` 目录
+- [ ] 创建 `README.md` 记录任务信息
+- [ ] 将最终输出保存到 `output/` 子目录
+- [ ] 更新 `README.md` 中的输出文件列表
+- [ ] 更新 `README.md` 中的结束时间
+
+---
+
+## 📝 TodoWrite 编写指南 (基于 s_full.py 工具)
+
+> ⚠️ **关键**: TodoWrite 的 items 必须与实际使用的工具调用相匹配，确保每个 todo 都能映射到具体的工具执行。
+
+### TodoWrite 数据结构
+
+```python
+TodoWrite(items=[
+    {
+        "content": "任务描述",      # 必需：清晰描述要做什么
+        "status": "pending",        # 必需：pending | in_progress | completed
+        "activeForm": "正在执行..."  # 必需：描述当前活动
+    },
+    # 最多 20 项，只能有 1 个 in_progress
+])
+```
+
+### 工具与 Todo 的映射关系
+
+| 工具 | Todo 内容示例 | activeForm 示例 |
+|------|--------------|----------------|
+| `bash` | 执行 shell 命令 | 正在运行命令... |
+| `read_file` | 读取配置文件 | 正在读取 config.json... |
+| `write_file` | 创建输出文件 | 正在写入结果文件... |
+| `edit_file` | 修改源代码 | 正在编辑 source.py... |
+| `task` (subagent) | 委托子代理任务 | 正在等待子代理分析... |
+| `background_run` | 后台执行长时间任务 | 正在后台处理... |
+| `load_skill` | 加载专业技能 | 正在加载 xlsx 技能... |
+| `task_create` | 创建持久化任务 | 正在设置任务跟踪... |
+| `spawn_teammate` | 创建协作者 | 正在启动协作者... |
+
+---
+
+## 🔀 并发任务 TodoWrite 示例
+
+### 场景：处理多个数据文件并生成汇总报告
+
+**任务分析**:
+- 3 个独立的 CSV 文件需要处理
+- 文件之间无依赖，可并行
+- 最后需要汇总所有结果
+
+**TodoWrite 写法**:
+
+```python
+TodoWrite(items=[
+    # 阶段 1: 准备工作
+    {"content": "创建任务文件夹 data/task-数据分析/", "status": "completed", "activeForm": "创建任务文件夹..."},
+    {"content": "读取并分析 3 个 CSV 文件结构", "status": "in_progress", "activeForm": "正在分析 CSV 文件结构..."},
+    
+    # 阶段 2: 并行处理 (使用 background_run)
+    {"content": "[并行] 处理 sales_q1.csv", "status": "pending", "activeForm": "等待后台处理 q1 数据..."},
+    {"content": "[并行] 处理 sales_q2.csv", "status": "pending", "activeForm": "等待后台处理 q2 数据..."},
+    {"content": "[并行] 处理 sales_q3.csv", "status": "pending", "activeForm": "等待后台处理 q3 数据..."},
+    
+    # 阶段 3: 汇总
+    {"content": "检查所有后台任务完成状态", "status": "pending", "activeForm": "正在检查后台任务状态..."},
+    {"content": "合并 3 个季度的处理结果", "status": "pending", "activeForm": "正在合并数据结果..."},
+    
+    # 阶段 4: 输出
+    {"content": "生成最终汇总报告 Excel", "status": "pending", "activeForm": "正在生成汇总报告..."},
+    {"content": "更新任务 README.md", "status": "pending", "activeForm": "正在更新任务文档..."},
+])
+
+# 对应的工具调用序列:
+# 1. 完成任务 1 (已完成)
+# 2. 完成任务 2 (in_progress)
+read_file("data/sales_q1.csv")
+read_file("data/sales_q2.csv")
+read_file("data/sales_q3.csv")
+
+# 3. 启动并行任务
+TodoWrite(items=[...将任务 3,4,5 设为 in_progress...])
+bg1 = background_run("python process.py data/sales_q1.csv")
+bg2 = background_run("python process.py data/sales_q2.csv")
+bg3 = background_run("python process.py data/sales_q3.csv")
+
+# 4. 检查后台任务
+TodoWrite(items=[...将任务 6 设为 in_progress...])
+check_background()  # 或等待自动通知
+
+# 5. 继续后续任务...
+```
+
+**关键要点**:
+1. 用 `[并行]` 前缀标记可并行执行的任务
+2. 并行任务可以**同时**设为 `in_progress` 状态（在实际执行时）
+3. 在 TodoWrite 中体现**任务阶段**
+4. 每个 todo 对应一个明确的工具调用
+
+---
+
+## 🤖 Subagent 任务 TodoWrite 示例
+
+### 场景：代码审查 + 重构
+
+**任务分析**:
+- 先探索代码库（只读）
+- 再执行重构（读写）
+- 两个阶段可委托给 subagent
+
+**TodoWrite 写法**:
+
+```python
+TodoWrite(items=[
+    # 阶段 1: 任务分解
+    {"content": "加载 task-decomposer 技能", "status": "completed", "activeForm": "正在加载技能..."},
+    {"content": "分析任务并创建 TodoWrite", "status": "completed", "activeForm": "正在分析任务..."},
+    
+    # 阶段 2: 代码审查 (使用 task-Explore)
+    {"content": "[Subagent-Explore] 审查 src/ 目录代码质量", "status": "in_progress", "activeForm": "正在等待子代理审查代码..."},
+    
+    # 阶段 3: 代码重构 (使用 task-general-purpose)
+    {"content": "[Subagent-GP] 根据审查结果重构代码", "status": "pending", "activeForm": "等待子代理重构代码..."},
+    
+    # 阶段 4: 验证
+    {"content": "运行测试验证重构结果", "status": "pending", "activeForm": "正在运行测试..."},
+    
+    # 阶段 5: 保存结果
+    {"content": "保存审查报告和重构日志", "status": "pending", "activeForm": "正在保存结果..."},
+])
+
+# 对应的工具调用序列:
+# 1. 加载技能
+load_skill("task-decomposer")
+
+# 2. 完成 todo 1,2 后
+TodoWrite(items=[...将任务 3 设为 in_progress...])
+
+# 3. 启动 Explore 类型的 subagent (只读)
+review_result = task("""
+审查 src/ 目录，识别:
+1. 代码质量问题
+2. 需要重构的模块
+3. 建议的重构方案
+""", agent_type="Explore")
+
+# 4. 审查完成后
+TodoWrite(items=[
+    {"content": "[Subagent-Explore] 审查 src/ 目录代码质量", "status": "completed", "activeForm": "审查完成"},
+    {"content": "[Subagent-GP] 根据审查结果重构代码", "status": "in_progress", "activeForm": "正在委托子代理重构..."},
+    ...
+])
+
+# 5. 启动 general-purpose 类型的 subagent (可读写)
+refactor_result = task("""
+根据以下审查报告重构代码:
+{review_result}
+
+要求:
+1. 保持 API 兼容性
+2. 添加必要的注释
+3. 保持代码风格一致
+""", agent_type="general-purpose")
+
+# 6. 继续后续任务...
+```
+
+**关键要点**:
+1. 用 `[Subagent-Explore]` 或 `[Subagent-GP]` 标记 subagent 任务
+2. 在 todo content 中说明 subagent 的类型
+3. activeForm 体现"等待子代理"的状态
+4. 完成后再更新下一个 todo 为 in_progress
+
+---
+
+## 👥 Teammate 协作 TodoWrite 示例
+
+### 场景：数据处理 + 报告生成的长期协作
+
+**任务分析**:
+- 需要两个协作者长期工作
+- 数据处理和报告生成并行
+- 需要任务跟踪和依赖管理
+
+**TodoWrite 写法**:
+
+```python
+TodoWrite(items=[
+    # 阶段 1: 设置协作环境
+    {"content": "创建持久化任务 (数据处理)", "status": "in_progress", "activeForm": "正在创建数据处理任务..."},
+    {"content": "创建持久化任务 (报告生成)", "status": "pending", "activeForm": "准备创建报告任务..."},
+    {"content": "创建持久化任务 (汇总)", "status": "pending", "activeForm": "准备创建汇总任务..."},
+    
+    # 阶段 2: 启动协作者
+    {"content": "[Teammate] 启动数据处理专家", "status": "pending", "activeForm": "准备启动 data_worker..."},
+    {"content": "[Teammate] 启动报告生成器", "status": "pending", "activeForm": "准备启动 report_worker..."},
+    
+    # 阶段 3: 分配任务
+    {"content": "分配本周数据处理任务", "status": "pending", "activeForm": "准备分配任务给 data_worker..."},
+    {"content": "分配周报生成任务", "status": "pending", "activeForm": "准备分配任务给 report_worker..."},
+    
+    # 阶段 4: 监控和整合
+    {"content": "检查协作者进度", "status": "pending", "activeForm": "准备检查团队状态..."},
+    {"content": "整合最终结果", "status": "pending", "activeForm": "准备整合数据..."},
+])
+
+# 对应的工具调用序列:
+# 1. 创建持久化任务
+data_task = task_create("数据处理", "处理 data 目录下所有 CSV 文件")
+# 返回: {"id": 1, ...}
+
+TodoWrite(items=[
+    {"content": "创建持久化任务 (数据处理)", "status": "completed", "activeForm": "任务已创建"},
+    {"content": "创建持久化任务 (报告生成)", "status": "in_progress", "activeForm": "正在创建报告任务..."},
+    ...
+])
+
+report_task = task_create("报告生成", "基于处理结果生成周报")
+# 返回: {"id": 2, ...}
+
+summary_task = task_create("汇总报告", "生成月度汇总", add_blocked_by=[1, 2])
+# 返回: {"id": 3, ...}
+
+# 2. 启动协作者
+TodoWrite(items=[...更新任务状态...])
+spawn_teammate("data_worker", "数据处理专家", "负责处理所有 CSV 数据文件")
+
+TodoWrite(items=[...更新...])
+spawn_teammate("report_worker", "报告生成器", "负责生成周报和月报")
+
+# 3. 分配任务
+TodoWrite(items=[...更新...])
+send_message("data_worker", "请处理本周的 CSV 文件")
+
+send_message("report_worker", "请生成本周工作报告")
+
+# 4. 监控
+TodoWrite(items=[...更新...])
+list_teammates()
+read_inbox()
+
+# 5. 整合结果
+# ... 主 agent 继续工作 ...
+```
+
+**关键要点**:
+1. 用 `[Teammate]` 前缀标记协作者相关任务
+2. 使用 `task_create` 创建可追踪的持久化任务
+3. 使用 `task_update` 设置依赖关系
+4. 协作者可以自动 `claim_task`
+
+---
+
+## 📋 完整综合示例
+
+### 任务："分析销售数据并创建品牌 PPT 报告"
+
+**完整执行流程**:
+
+```python
+# ==================== STEP 1: 任务分解 ====================
+load_skill("task-decomposer")
+
+# ==================== STEP 2: 创建 TodoWrite ====================
+TodoWrite(items=[
+    # 阶段 1: 环境准备
+    {"content": "创建任务文件夹 data/task-销售分析-ppt/", "status": "in_progress", "activeForm": "正在创建任务文件夹..."},
+    {"content": "创建 README.md 任务文档", "status": "pending", "activeForm": "准备创建任务文档..."},
+    
+    # 阶段 2: 数据准备
+    {"content": "读取销售数据 Excel 文件", "status": "pending", "activeForm": "准备读取 sales_data.xlsx..."},
+    {"content": "[并行] 清洗 Q1 数据", "status": "pending", "activeForm": "准备后台处理 Q1..."},
+    {"content": "[并行] 清洗 Q2 数据", "status": "pending", "activeForm": "准备后台处理 Q2..."},
+    {"content": "[并行] 清洗 Q3 数据", "status": "pending", "activeForm": "准备后台处理 Q3..."},
+    {"content": "[并行] 清洗 Q4 数据", "status": "pending", "activeForm": "准备后台处理 Q4..."},
+    
+    # 阶段 3: 数据分析
+    {"content": "[Subagent] 分析销售趋势和关键指标", "status": "pending", "activeForm": "准备委托子代理分析..."},
+    
+    # 阶段 4: PPT 制作
+    {"content": "加载 pptx 技能", "status": "pending", "activeForm": "准备加载 pptx 技能..."},
+    {"content": "加载 brand-guidelines 技能", "status": "pending", "activeForm": "准备加载品牌指南..."},
+    {"content": "创建 PPT 框架", "status": "pending", "activeForm": "准备创建 PPT 结构..."},
+    {"content": "填充数据和图表", "status": "pending", "activeForm": "准备填充内容..."},
+    {"content": "应用品牌样式", "status": "pending", "activeForm": "准备应用品牌风格..."},
+    
+    # 阶段 5: 完成
+    {"content": "保存最终 PPT 到 output/", "status": "pending", "activeForm": "准备保存结果..."},
+    {"content": "更新 README.md 完成状态", "status": "pending", "activeForm": "准备更新任务文档..."},
+])
+
+# ==================== STEP 3: 执行任务 ====================
+
+# 任务 1: 创建文件夹
+import os
+from datetime import datetime
+date_str = datetime.now().strftime("%Y%m%d")
+task_folder = f"data/task-{date_str}-销售分析-ppt"
+os.makedirs(f"{task_folder}/output", exist_ok=True)
+os.makedirs(f"{task_folder}/intermediate", exist_ok=True)
+
+# 更新 todo
+TodoWrite(items=[
+    {"content": "创建任务文件夹 data/task-销售分析-ppt/", "status": "completed", "activeForm": "文件夹已创建"},
+    {"content": "创建 README.md 任务文档", "status": "in_progress", "activeForm": "正在创建 README.md..."},
+    ...
+])
+
+# 任务 2: 创建 README
+readme = f"""# 销售分析 PPT 报告
+
+## 任务描述
+分析销售数据并创建品牌 PPT 报告
+
+## 执行时间
+- 开始：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+- 结束：待完成
+
+## 使用的技能
+- xlsx
+- pptx
+- brand-guidelines
+
+## 输出文件
+待更新
+"""
+write_file(f"{task_folder}/README.md", readme)
+
+# 任务 3-7: 数据处理
+TodoWrite(items=[...更新状态...])
+load_skill("xlsx")
+read_file("data/sales_data.xlsx")
+
+# 并行清洗 4 个季度的数据
+TodoWrite(items=[
+    ...
+    {"content": "[并行] 清洗 Q1 数据", "status": "in_progress", "activeForm": "正在后台处理 Q1..."},
+    {"content": "[并行] 清洗 Q2 数据", "status": "in_progress", "activeForm": "正在后台处理 Q2..."},
+    {"content": "[并行] 清洗 Q3 数据", "status": "in_progress", "activeForm": "正在后台处理 Q3..."},
+    {"content": "[并行] 清洗 Q4 数据", "status": "in_progress", "activeForm": "正在后台处理 Q4..."},
+    ...
+])
+
+bg1 = background_run("python clean_data.py --quarter Q1")
+bg2 = background_run("python clean_data.py --quarter Q2")
+bg3 = background_run("python clean_data.py --quarter Q3")
+bg4 = background_run("python clean_data.py --quarter Q4")
+
+# 等待后台任务完成
+TodoWrite(items=[
+    ...
+    {"content": "检查所有后台任务完成状态", "status": "in_progress", "activeForm": "正在检查后台任务..."},
+    ...
+])
+check_background()
+
+# 任务 8: 数据分析 (subagent)
+TodoWrite(items=[
+    ...
+    {"content": "[Subagent] 分析销售趋势和关键指标", "status": "in_progress", "activeForm": "正在委托子代理分析..."},
+    ...
+])
+
+analysis = task("""
+分析清洗后的销售数据，识别:
+1. 季度增长趋势
+2. 关键销售指标 (KPI)
+3. 异常值和洞察
+4. 建议的图表类型
+""", agent_type="Explore")
+
+# 任务 9-12: PPT 制作
+TodoWrite(items=[
+    ...
+    {"content": "加载 pptx 技能", "status": "in_progress", "activeForm": "正在加载 pptx 技能..."},
+    ...
+])
+load_skill("pptx")
+
+TodoWrite(items=[
+    ...
+    {"content": "加载 brand-guidelines 技能", "status": "in_progress", "activeForm": "正在加载品牌指南..."},
+    ...
+])
+load_skill("brand-guidelines")
+
+# ... 继续执行剩余任务 ...
+
+# 最后: 保存结果并更新 README
+write_file(f"{task_folder}/output/sales_report.pptx", final_pptx)
+
+final_readme = f"""# 销售分析 PPT 报告
+
+## 任务描述
+分析销售数据并创建品牌 PPT 报告
+
+## 执行时间
+- 开始：2025-01-15 09:00:00
+- 结束：2025-01-15 11:30:00
+
+## 使用的技能
+- xlsx - 数据处理
+- pptx - PPT 制作
+- brand-guidelines - 品牌样式
+
+## 输出文件
+| 文件名 | 说明 |
+|--------|------|
+| sales_report.pptx | 最终销售报告 PPT |
+| analysis_summary.md | 数据分析摘要 |
+
+## 备注
+使用了 4 个并行后台任务处理季度数据
+使用 subagent 进行趋势分析
+"""
+write_file(f"{task_folder}/README.md", final_readme)
+
+# 标记所有任务完成
+TodoWrite(items=[
+    {"content": "创建任务文件夹 data/task-销售分析-ppt/", "status": "completed", "activeForm": "已完成"},
+    {"content": "创建 README.md 任务文档", "status": "completed", "activeForm": "已完成"},
+    ...
+    {"content": "更新 README.md 完成状态", "status": "completed", "activeForm": "已完成"},
+])
+```
+
+---
+
+## ✅ TodoWrite 最佳实践检查清单
+
+| 检查项 | 说明 |
+|--------|------|
+| ✅ 任务分解合理 | 每个 todo 应该是原子操作 |
+| ✅ 状态正确 | 只能有 1 个 `in_progress` |
+| ✅ activeForm 清晰 | 描述当前正在进行的活动 |
+| ✅ 映射到工具 | 每个 todo 对应具体的工具调用 |
+| ✅ 并行任务标记 | 使用 `[并行]` 或 `[Parallel]` 前缀 |
+| ✅ Subagent 标记 | 使用 `[Subagent-Explore]` 或 `[Subagent-GP]` |
+| ✅ Teammate 标记 | 使用 `[Teammate]` 前缀 |
+| ✅ 阶段分明 | 按阶段组织 todo 顺序 |
+| ✅ 及时更新 | 完成一项后立即更新状态 |
+| ✅ 结果保存 | 包含保存结果到 data/ 的任务 |
+
+---
+
+## 🎯 常见模式速查表
+
+| 模式 | TodoWrite 结构 | 对应工具 |
+|------|---------------|----------|
+| 顺序执行 | A(pending) → A(in_progress) → A(completed), B(in_progress) | 同步工具 |
+| 并行执行 | A,B,C 同时 in_progress | background_run |
+| Subagent 委托 | [Subagent] A(in_progress) → 等待 → A(completed) | task |
+| Teammate 协作 | [Teammate] A + task_create | spawn_teammate |
+| 依赖链 | task_create A, B, C + task_update(B, blockedBy=[A]) | task_create/update |
 
 ---
 

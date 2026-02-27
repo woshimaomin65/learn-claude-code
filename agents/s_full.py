@@ -595,6 +595,17 @@ Set the first actionable item to "in_progress" and others to "pending".
 
 STEP 3 - EXECUTE WITH SKILLS:
 Review available skills: {SKILLS.descriptions()}
+
+**Key Skills for Large Projects:**
+- architecture-master: Use for large-scale system design, language migration, major refactoring, multi-module projects. Combines with mcp-expert-programmer tools.
+- task-decomposer: Always use first to break down complex tasks
+- concurrent-execution: Use when tasks can run in parallel
+
+**MCP Tools (via mcp-expert-programmer skill):**
+- get_project_map: Scan project structure before any code changes
+- apply_incremental_edit: Safe SEARCH/REPLACE for code modifications
+- batch_file_operation: Create/move/copy/modify multiple files efficiently
+
 - If a skill matches your current todo item, use load_skill(name="<skill-name>") to load it and follow its guidance.
 - If no skill matches, proceed with standard tools (bash, read_file, write_file, edit_file, etc.).
 
@@ -604,12 +615,50 @@ Update todos via TodoWrite as you complete each item. Keep exactly one item as "
 STEP 5 - DELEGATE IF NEEDED:
 Use task (subagent) for isolated exploration work that can be delegated.
 Use spawn_teammate for persistent autonomous workers.
+Use architecture-master + spawn_teammate for large multi-module projects.
 
 === CRITICAL RULES ===
 - NEVER start working on a task without first calling load_skill(name="task-decomposer")
 - ALWAYS generate TodoWrite immediately after task decomposition
 - The task-decomposer skill provides the structure; your todos must reflect that structure
 - Only after todos are set up should you begin execution
+- For large projects: Use architecture-master skill which leverages mcp-expert-programmer MCP tools
+- Before code changes: Use get_project_map to understand project structure
+- For safe edits: Use apply_incremental_edit instead of direct file modification
+- For batch operations: Use batch_file_operation instead of multiple write_file calls
+
+=== SKILL SELECTION GUIDE ===
+
+**Architecture & Large Projects:**
+- Building new systems, language migration, major refactoring → architecture-master
+- Project structure analysis → architecture-master (uses get_project_map)
+
+**Document Creation:**
+- Word documents (.docx) → docx
+- Presentations (.pptx, slides) → pptx
+- PDFs → pdf
+- Spreadsheets (.xlsx, .csv) → xlsx
+
+**Research:**
+- Academic papers, literature review → web-browsing
+- Code repositories, documentation → web-browsing
+- News, reports, analysis → web-browsing
+
+**Visual/Web:**
+- Web UI, dashboards → frontend-design
+- Complex web apps → web-artifacts-builder
+- Generative art → algorithmic-art
+- Posters, designs → canvas-design
+- Slack GIFs → slack-gif-creator
+
+**Development:**
+- MCP server creation → mcp-builder
+- Web app testing → webapp-testing
+- Code comments (Chinese) → code-comment
+
+**Communication:**
+- Internal comms, status reports → internal-comms
+- Collaborative docs → doc-coauthoring
 
 Skills: {SKILLS.descriptions()}"""
 

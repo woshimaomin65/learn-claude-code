@@ -12,7 +12,7 @@ This skill provides a systematic approach to breaking down complex tasks into ac
 
 To enable efficient task execution by:
 1. Analyzing user requests to identify all required steps
-2. Mapping each step to the most appropriate skill
+2. Mapping each step to the most appropriate skill or MCP tool
 3. Identifying opportunities for parallel execution
 4. Determining when to use subagents for isolated work
 5. Creating organized output structures
@@ -25,13 +25,13 @@ To enable efficient task execution by:
 3. **Determine Dependencies**: What steps must happen before others?
 4. **Assess Complexity**: Is this a single-step task or multi-phase project?
 
-### Phase 2: Skill Mapping
-Map each task component to the appropriate skill. Use the skill reference below.
+### Phase 2: Skill & MCP Mapping
+Map each task component to the appropriate skill or MCP tool. Use the reference below.
 
 ### Phase 3: Execution Planning
 1. **Sequential Steps**: Steps that must happen in order
 2. **Parallel Opportunities**: Steps that can run concurrently
-3. **Delegation Candidates**: Tasks suitable for subagents
+3. **Delegation Candidates**: Tasks suitable for subagents or teammates
 
 ### Phase 4: Output Organization
 ALWAYS create a task folder in `data/` directory:
@@ -46,9 +46,45 @@ data/{task-name}-{date}/
 
 ---
 
-# Skill Reference Guide
+# Skill & MCP Reference Guide
 
-## Document & Content Creation
+## 🏗️ Architecture & Large Project Programming
+
+### architecture-master (NEW)
+**Trigger**: User wants to build large-scale systems, migrate projects between languages, design system architecture, or perform major refactoring
+**Purpose**: World-class software architect and multi-language expert for commanding large programming projects
+**Key Features**:
+- **Architecture Design**: Scalable, maintainable, high-performance system architecture
+- **Multi-Language Expert**: Python, JavaScript/TypeScript, Go, Rust, Java, C++ and more
+- **System Migration**: Migrate systems between languages while maintaining functional equivalence
+- **Code Quality**: Clean, readable, well-tested code
+- **Performance Optimization**: Identify and resolve bottlenecks
+
+**Core Principles**:
+1. **Architecture First**: Design before coding
+2. **Equivalent Transformation**: Maintain functional consistency during migration
+3. **Incremental Building**: Iterative development approach
+4. **Tool Enhancement**: Leverage MCP tools for efficiency
+
+**Workflow**:
+1. Project scanning with `get_project_map` (MCP)
+2. Architecture design and planning
+3. Skeleton setup with `batch_file_operation` (MCP)
+4. Core implementation with `apply_incremental_edit` (MCP)
+5. Verification and optimization
+
+**Use Cases**:
+- New project from scratch
+- Language migration (Python → TypeScript, etc.)
+- Architecture refactoring
+- Large-scale feature addition
+- Code review and improvement suggestions
+
+**Differentiator**: Combines architectural thinking with MCP tool usage for maximum efficiency
+
+---
+
+## 📄 Document & Content Creation
 
 ### doc-coauthoring
 **Trigger**: User wants to write documentation, proposals, technical specs, decision docs, or structured content
@@ -120,7 +156,7 @@ data/{task-name}-{date}/
 
 ---
 
-## Research & Information Gathering
+## 🔍 Research & Information Gathering
 
 ### web-browsing
 **Trigger**: User mentions research, literature review, finding papers, downloading code, gathering news, analyzing reports, or navigating multiple web pages
@@ -137,14 +173,9 @@ data/{task-name}-{date}/
 - Combine with other skills for document creation from research
 - Track sources for citations
 
-### task-decomposer
-**Trigger**: Complex multi-step tasks requiring planning and organization
-**Purpose**: Break down tasks, identify skills, plan execution
-**Self-Reference**: Use this skill recursively for complex projects with multiple phases
-
 ---
 
-## Visual & Creative Content
+## 🎨 Visual & Creative Content
 
 ### frontend-design
 **Trigger**: User asks to build web components, pages, artifacts, dashboards, React components, HTML/CSS layouts, or styling/beautifying web UI
@@ -213,7 +244,7 @@ data/{task-name}-{date}/
 
 ---
 
-## Technical & Development
+## 💻 Technical & Development
 
 ### mcp-builder
 **Trigger**: Building MCP servers to integrate external APIs or services
@@ -222,6 +253,21 @@ data/{task-name}-{date}/
 - Python (FastMCP) implementations
 - Node/TypeScript (MCP SDK) implementations
 - Tool design for LLM external service interaction
+
+### mcp-expert-programmer (NEW - MCP Tool)
+**Trigger**: Large project programming, architecture analysis, code transformation, batch file operations
+**Purpose**: Expert-level programming MCP providing project architecture scanning, incremental editing, and batch file operations
+**Tools**:
+- `get_project_map`: Scan project directory structure, generate architecture diagrams
+- `apply_incremental_edit`: Precise SEARCH/REPLACE editing with regex support
+- `batch_file_operation`: Batch create/delete/move/copy/modify operations
+
+**Use Cases**:
+- Understanding new project structure
+- Code refactoring
+- Project scaffolding
+- Large-scale migration
+- Batch file operations
 
 ### webapp-testing
 **Trigger**: Testing local web applications, verifying frontend functionality
@@ -242,7 +288,7 @@ data/{task-name}-{date}/
 
 ---
 
-## Skill Creation & Optimization
+## 🛠️ Skill Creation & Optimization
 
 ### skill-creator
 **Trigger**: Users want to create a skill from scratch, update/optimize existing skills, run evals, or benchmark performance
@@ -256,7 +302,7 @@ data/{task-name}-{date}/
 
 ---
 
-## Parallel Execution
+## ⚡ Parallel Execution
 
 ### concurrent-execution
 **Trigger**: User mentions parallel tasks, concurrent execution, batch processing, multiple independent operations, or when you identify opportunities to speed up work
@@ -269,10 +315,14 @@ data/{task-name}-{date}/
 
 ---
 
-# Decision Tree for Skill Selection
+# Decision Tree for Skill & MCP Selection
 
 ```
 User Request
+    │
+    ├── Large project / Architecture / Language migration?
+    │   ├── Yes → architecture-master (uses mcp-expert-programmer tools)
+    │   └── No → Continue
     │
     ├── Contains file reference?
     │   ├── .docx, Word → docx
@@ -280,6 +330,12 @@ User Request
     │   ├── .pdf → pdf
     │   ├── .xlsx, .csv, spreadsheet → xlsx
     │   └── No file → Continue
+    │
+    ├── Project analysis / Code transformation needed?
+    │   ├── Scan project structure → mcp-expert-programmer (get_project_map)
+    │   ├── Incremental code edit → mcp-expert-programmer (apply_incremental_edit)
+    │   ├── Batch file operations → mcp-expert-programmer (batch_file_operation)
+    │   └── No → Continue
     │
     ├── Research/Information needed?
     │   ├── Papers, literature → web-browsing (academic)
@@ -338,6 +394,12 @@ Task: Create report in Word, PDF, and presentation formats
 Parallel Strategy: Generate all formats concurrently after content is ready
 ```
 
+### Project Module Development
+```
+Task: Build multiple independent modules in a large project
+Parallel Strategy: Use architecture-master to design, then spawn teammates for each module
+```
+
 ---
 
 # Examples
@@ -380,6 +442,49 @@ Parallel Strategy: Generate all formats concurrently after content is ready
 4. Use docx for Word format versions
 5. Save to `data/api-docs-{date}/`
 
+## Example 5: Large Project Migration (NEW)
+**User**: "Migrate this Python project to TypeScript"
+
+**Decomposition**:
+1. Load skill: architecture-master
+2. Use mcp-expert-programmer (get_project_map) to scan Python project structure
+3. Architecture-master designs TypeScript project architecture
+4. Use mcp-expert-programmer (batch_file_operation) to create TypeScript project skeleton
+5. Architecture-master guides module-by-module conversion
+   - Data structure conversion
+   - Function/method conversion
+   - Class/interface conversion
+   - Error handling conversion
+6. Use mcp-expert-programmer (apply_incremental_edit) for precise code modifications
+7. Verify functional equivalence
+8. Save to `data/python-to-ts-migration-{date}/`
+
+## Example 6: New System Development (NEW)
+**User**: "Build a microservice-based e-commerce platform from scratch"
+
+**Decomposition**:
+1. Load skill: architecture-master
+2. Architecture-master designs system architecture (microservices pattern)
+3. Use mcp-expert-programmer (batch_file_operation) to create project structure
+4. Spawn teammates for each service (user, product, order, payment)
+5. Each teammate uses architecture-master principles for their service
+6. Use concurrent-execution for parallel service development
+7. Integration testing and deployment
+8. Save to `data/ecommerce-platform-{date}/`
+
+## Example 7: Codebase Refactoring (NEW)
+**User**: "Refactor this legacy codebase to improve maintainability"
+
+**Decomposition**:
+1. Load skill: architecture-master
+2. Use mcp-expert-programmer (get_project_map) to analyze current structure
+3. Architecture-master identifies refactoring opportunities
+4. Create task list with priorities
+5. Use mcp-expert-programmer (apply_incremental_edit) for safe code modifications
+6. Use mcp-expert-programmer (batch_file_operation) for file reorganization
+7. Continuous testing after each refactoring step
+8. Save to `data/refactoring-{date}/`
+
 ---
 
 # Best Practices
@@ -387,9 +492,10 @@ Parallel Strategy: Generate all formats concurrently after content is ready
 ## Always
 - Create organized folder structure in `data/`
 - Identify parallel execution opportunities
-- Map each step to specific skills
+- Map each step to specific skills or MCP tools
 - Consider subagent delegation for isolated tasks
 - Document sources and assumptions
+- For large projects, use architecture-master skill
 
 ## Never
 - Start complex tasks without decomposition
@@ -397,6 +503,7 @@ Parallel Strategy: Generate all formats concurrently after content is ready
 - Hardcode values in spreadsheets (use formulas)
 - Copy existing artists' work (create original content)
 - Use wrong skill for file type (e.g., pdf skill for .xlsx)
+- Modify code without understanding project structure first
 
 ## Quality Checks
 - Verify all formula errors are resolved (xlsx)
@@ -404,53 +511,120 @@ Parallel Strategy: Generate all formats concurrently after content is ready
 - Ensure visual designs are original
 - Test web applications before delivery
 - Review document formatting consistency
+- Verify architecture decisions are documented
 
 ---
 
-# Subagent Delegation Guidelines
+# Subagent & Teammate Delegation Guidelines
 
-Use `task` (subagent) for:
+## Use `task` (subagent) for:
 - Isolated research tasks
 - Independent data processing
 - Single-skill focused work
 - Tasks with clear success criteria
+- Short-lived exploration work
 
-Use `spawn_teammate` for:
+## Use `spawn_teammate` for:
 - Long-running autonomous work
 - Tasks requiring ongoing coordination
 - Complex multi-phase projects
 - Work needing persistent state
+- Module development in large projects
 
-Use `concurrent-execution` skill for:
+## Use `concurrent-execution` skill for:
 - Batch processing
 - Multiple independent file operations
 - Parallel research queries
 - Simultaneous format generation
 
+## Use architecture-master for:
+- Large-scale project planning
+- Language migration projects
+- System architecture design
+- Major refactoring efforts
+- Multi-language development
+
 ---
 
-# Integration with web-browsing
+# Integration Patterns
 
-The web-browsing skill is critical for research-heavy tasks. Key integration patterns:
+## architecture-master + mcp-expert-programmer Pipeline
+```
+architecture-master
+    ├── get_project_map (scan structure)
+    ├── Design architecture
+    ├── batch_file_operation (create skeleton)
+    ├── apply_incremental_edit (implement)
+    └── Verify & optimize
+```
 
-### Research → Document Pipeline
+## Research → Document Pipeline
 ```
 web-browsing (gather info) → doc-coauthoring/pptx/docx (create content)
 ```
 
-### Research → Data Pipeline
+## Research → Data Pipeline
 ```
 web-browsing (collect data) → xlsx (analyze/model) → pptx (present)
 ```
 
-### Multi-Hop Research
+## Multi-Hop Research
 ```
 web-browsing (find sources) → web-browsing (follow citations) → web-browsing (verify claims)
 ```
 
-### Code Research
+## Code Research & Documentation
 ```
 web-browsing (find GitHub repos) → web-browsing (download code) → code-comment (document)
 ```
 
+## Project Analysis → Refactoring Pipeline
+```
+mcp-expert-programmer (get_project_map) → architecture-master (analyze) → mcp-expert-programmer (apply_incremental_edit)
+```
+
 Always cite sources gathered via web-browsing in final deliverables.
+
+---
+
+# MCP Tools Quick Reference
+
+## mcp-expert-programmer Tools
+
+### get_project_map
+```
+Purpose: Scan project directory structure
+Parameters:
+  - rootPath (required): Project root directory
+  - patterns (optional): File match patterns
+  - ignorePatterns (optional): Patterns to ignore
+  - includeContent (optional): Include file content summary
+  - maxDepth (optional): Maximum scan depth
+```
+
+### apply_incremental_edit
+```
+Purpose: Precise SEARCH/REPLACE editing
+Parameters:
+  - filePath (required): Target file path
+  - searchPattern (required): Text pattern to search
+  - replaceText (required): Replacement text
+  - useRegex (optional): Use regular expressions
+  - replaceAll (optional): Replace all matches
+  - dryRun (optional): Preview only
+```
+
+### batch_file_operation
+```
+Purpose: Batch file operations
+Parameters:
+  - operations (required): List of operations
+    - type: create|delete|move|copy|modify
+    - sourcePath: Source path (for move/copy/modify)
+    - targetPath: Target path
+    - content: File content (for create/modify)
+    - searchPattern: Search pattern (for modify)
+    - replaceText: Replace text (for modify)
+  - dryRun (optional): Preview only
+  - continueOnError (optional): Continue on error
+```

@@ -50,9 +50,9 @@ data/{task-name}-{date}/
 
 ## 🏗️ Architecture & Large Project Programming
 
-### architecture-master (NEW)
-**Trigger**: User wants to build large-scale systems, migrate projects between languages, design system architecture, or perform major refactoring
-**Purpose**: World-class software architect and multi-language expert for commanding large programming projects
+### architecture-master (REQUIRED FOR ALL CODING TASKS)
+**Trigger**: ANY task that involves writing code, building systems, migrating projects between languages, designing system architecture, performing major refactoring, creating new files with code, or modifying existing code
+**Purpose**: World-class software architect and multi-language expert for commanding ALL programming projects (from simple scripts to complex systems)
 **Key Features**:
 - **Architecture Design**: Scalable, maintainable, high-performance system architecture
 - **Multi-Language Expert**: Python, JavaScript/TypeScript, Go, Rust, Java, C++ and more
@@ -74,11 +74,14 @@ data/{task-name}-{date}/
 5. Verification and optimization
 
 **Use Cases**:
+- **ANY code writing task** (simple scripts to complex systems)
 - New project from scratch
 - Language migration (Python → TypeScript, etc.)
 - Architecture refactoring
 - Large-scale feature addition
 - Code review and improvement suggestions
+
+**CRITICAL**: For ANY task that involves writing code (even simple scripts like hello_world.py), you MUST load and use architecture-master skill. Do NOT write code directly without using this skill.
 
 **Differentiator**: Combines architectural thinking with MCP tool usage for maximum efficiency
 
@@ -320,8 +323,8 @@ data/{task-name}-{date}/
 ```
 User Request
     │
-    ├── Large project / Architecture / Language migration?
-    │   ├── Yes → architecture-master (uses mcp-expert-programmer tools)
+    ├── Contains code writing task? (ANY code: simple scripts, new files, modifications)
+    │   ├── Yes → architecture-master (REQUIRED for ALL coding tasks)
     │   └── No → Continue
     │
     ├── Contains file reference?

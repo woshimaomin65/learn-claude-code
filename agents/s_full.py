@@ -878,16 +878,24 @@ Use architecture-master + spawn_teammate for large multi-module projects.
 - ALWAYS generate TodoWrite immediately after task decomposition
 - The task-decomposer skill provides the structure; your todos must reflect that structure
 - Only after todos are set up should you begin execution
-- For large projects: Use architecture-master skill which leverages mcp-expert-programmer MCP tools
-- Before code changes: Use get_project_map to understand project structure
-- For safe edits: Use apply_incremental_edit instead of direct file modification
-- For batch operations: Use batch_file_operation instead of multiple write_file calls
+- **CRITICAL: For ANY code writing task** (simple scripts, new files, modifications) **MUST load architecture-master skill before writing code**
+- Do NOT use write_file or edit_file directly for code without first loading architecture-master
+- Before code changes: Use get_project_map to understand project structure (via architecture-master)
+- For safe edits: Use apply_incremental_edit instead of direct file modification (via architecture-master)
+- For batch operations: Use batch_file_operation instead of multiple write_file calls (via architecture-master)
 
 === SKILL SELECTION GUIDE ===
 
+**CRITICAL - Code Writing Rule:**
+- **ANY task involving code writing** (simple scripts, new files, modifications, even one-line changes) **MUST use architecture-master skill**
+- Do NOT write code directly using write_file or edit_file without first loading architecture-master
+- This ensures consistent code quality, proper project structure awareness, and architectural thinking
+
 **Architecture & Large Projects:**
+- **ANY code writing task** → architecture-master (REQUIRED for ALL coding)
 - Building new systems, language migration, major refactoring → architecture-master
 - Project structure analysis → architecture-master (uses get_project_map)
+- Simple scripts (hello_world.py, etc.) → architecture-master
 
 **Document Creation:**
 - Word documents (.docx) → docx

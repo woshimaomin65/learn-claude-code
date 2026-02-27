@@ -535,6 +535,7 @@ def run_bash(command: str) -> str:
     except subprocess.TimeoutExpired:
         return "Error: Timeout (120s)"
 
+
 def parse_relative_time(query: str) -> tuple[str, int|None]:
     """
     Parse relative time expressions in query and convert to specific dates.
@@ -615,21 +616,426 @@ def parse_relative_time(query: str) -> tuple[str, int|None]:
     return modified_query, days_limit
 
 
+def rewrite_query(query: str) -> list[str]:
+    """
+    Rewrite user query into up to 3 variations for better search coverage.
+    
+    This function analyzes the user's query and generates alternative phrasings
+    to improve search recall while maintaining precision. The goal is to capture
+    different ways the same information might be expressed in web content.
+    
+    Args:
+        query: Original user query
+        
+    Returns:
+        List of 1-3 rewritten queries (including original)
+    
+    Rewrite strategies:
+        1. Keep original query (always included)
+        2. Add context/specifiers (e.g., "price", "latest", "official")
+        3. Rephrase with synonyms or related terms
+        4. Expand abbreviations or add full terms
+        5. Add domain-specific keywords when applicable
+    
+    Examples:
+        - "金价" -> ["金价", "今日黄金价格", "国际金价最新行情"]
+        - "AI 发展" -> ["AI 发展", "人工智能最新进展 2025", "AI 技术发展趋势"]
+        - "特斯拉销量" -> ["特斯拉销量", "Tesla sales 2025", "特斯拉汽车销量数据"]
+    """
+    # Always include the original query (after time parsing)
+    processed_query, _ = parse_relative_time(query)
+    rewritten = [processed_query]
+    
+    # Strategy 1: Add time/context specifiers for news-like queries
+    time_context_patterns = [
+        (r'(价 | 价格 | 行情 | 数据 | 统计)', r'\1 最新'),
+        (r'(发展 | 进展 | 动态)', r'\1 2025 年'),
+        (r'(新闻 | 消息 | 报道)', r'最新\1'),
+    ]
+    
+    for pattern, replacement in time_context_patterns:
+        if re.search(pattern, processed_query):
+            variant = re.sub(pattern, replacement, processed_query)
+            if variant not in rewritten:
+                rewritten.append(variant)
+            break
+    
+    # Strategy 2: Add English terms for international topics
+    english_equivalents = {
+        '金价': 'gold price USD',
+        '黄金': 'gold price',
+        '特斯拉': 'Tesla',
+        '苹果': 'Apple',
+        '微软': 'Microsoft',
+        '谷歌': 'Google',
+        'AI': 'AI artificial intelligence',
+        '人工智能': 'artificial intelligence AI',
+        '大模型': 'LLM large language model',
+        '芯片': 'chip semiconductor',
+        '股票': 'stock price',
+        '销量': 'sales revenue',
+        '股价': 'stock price',
+    }
+    
+    for cn_term, en_term in english_equivalents.items():
+        if cn_term in processed_query and len(rewritten) < 3:
+            # Create a variant with English term
+            variant = processed_query.replace(cn_term, f"{cn_term} {en_term}")
+            if variant not in rewritten:
+                rewritten.append(variant)
+            break
+    
+    # Strategy 3: For short queries (< 6 chars), expand with common related terms
+    if len(processed_query.replace(' ', '')) < 6 and len(rewritten) < 3:
+        expansion_map = {
+            '金价': '黄金价格今日行情',
+            '油价': '原油价格最新',
+            '股价': '股票价格',
+            '汇率': '汇率换算',
+            '天气': '天气预报',
+            '新闻': '最新消息',
+        }
+        for short, expanded in expansion_map.items():
+            if short in processed_query:
+                variant = processed_query.replace(short, expanded)
+                if variant not in rewritten:
+                    rewritten.append(variant)
+                break
+    
+    # Limit to maximum 3 queries
+    return rewritten[:3]
+
+
+def run_tavily_search_parallel(queries: list[str], search_depth: str = "basic", max_results: int = 5, include_answer: bool = False) -> list[dict]:
+    """
+    Run multiple Tavily searches in parallel and merge results.
+    
+    Args:
+        queries: List of search queries (1-3 queries)
+        search_depth: Search depth ("basic" or "advanced")
+        max_results: Max results per query
+        include_answer: Whether to include AI-generated answer
+        
+    Returns:
+        List of merged and deduplicated search results
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    def single_search(query: str) -> dict:
+        """Execute single search and return results with query info."""
+        try:
+            result = tavily_client.search(query, search_depth, max_results, include_answer)
+            return {
+                "query": query,
+                "results": result.get("results", []),
+                "answer": result.get("answer", ""),
+                "success": True
+            }
+        except Exception as e:
+            return {
+                "query": query,
+                "results": [],
+                "answer": "",
+                "success": False,
+                "error": str(e)
+            }
+    
+    # Execute searches in parallel
+    all_results = []
+    all_answers = []
+    
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_to_query = {
+            executor.submit(single_search, q): q 
+            for q in queries
+        }
+        
+        for future in as_completed(future_to_query):
+            result = future.result()
+            if result["success"]:
+                all_results.extend(result["results"])
+                if result["answer"]:
+                    all_answers.append(f"[{result['query']}] {result['answer']}")
+    
+    # Deduplicate results by URL
+    seen_urls = set()
+    deduplicated_results = []
+    for result in all_results:
+        url = result.get("url", "")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            deduplicated_results.append(result)
+    
+    # Sort by score (relevance)
+    deduplicated_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    
+    return {
+        "results": deduplicated_results,
+        "answers": all_answers,
+        "queries_used": queries
+    }
+
+
+def run_tavily_news_parallel(queries: list[str], max_results: int = 5, days: int = 7) -> list[dict]:
+    """
+    Run multiple Tavily news searches in parallel and merge results.
+    
+    Args:
+        queries: List of search queries (1-3 queries)
+        max_results: Max results per query
+        days: Number of days to search back
+        
+    Returns:
+        List of merged and deduplicated news results
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    def single_news_search(query: str) -> dict:
+        """Execute single news search and return results with query info."""
+        try:
+            result = tavily_client.search_news(query, max_results, days)
+            return {
+                "query": query,
+                "results": result.get("results", []),
+                "success": True
+            }
+        except Exception as e:
+            return {
+                "query": query,
+                "results": [],
+                "success": False,
+                "error": str(e)
+            }
+    
+    # Execute searches in parallel
+    all_results = []
+    
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_to_query = {
+            executor.submit(single_news_search, q): q 
+            for q in queries
+        }
+        
+        for future in as_completed(future_to_query):
+            result = future.result()
+            if result["success"]:
+                all_results.extend(result["results"])
+    
+    # Deduplicate results by URL
+    seen_urls = set()
+    deduplicated_results = []
+    for result in all_results:
+        url = result.get("url", "")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            deduplicated_results.append(result)
+    
+    # Sort by date (newest first)
+    deduplicated_results.sort(
+        key=lambda x: x.get("published_date", ""), 
+        reverse=True
+    )
+    
+    return {
+        "results": deduplicated_results,
+        "queries_used": queries
+    }
+
+
+def run_tavily_search_parallel(queries: list[str], search_depth: str = "basic", max_results: int = 5, include_answer: bool = False) -> list[dict]:
+    """
+    Run multiple Tavily searches in parallel and merge results.
+    
+    Args:
+        queries: List of search queries (1-3 queries)
+        search_depth: Search depth ("basic" or "advanced")
+        max_results: Max results per query
+        include_answer: Whether to include AI-generated answer
+        
+    Returns:
+        List of merged and deduplicated search results
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    def single_search(query: str) -> dict:
+        """Execute single search and return results with query info."""
+        try:
+            result = tavily_client.search(query, search_depth, max_results, include_answer)
+            return {
+                "query": query,
+                "results": result.get("results", []),
+                "answer": result.get("answer", ""),
+                "success": True
+            }
+        except Exception as e:
+            return {
+                "query": query,
+                "results": [],
+                "answer": "",
+                "success": False,
+                "error": str(e)
+            }
+    
+    # Execute searches in parallel
+    all_results = []
+    all_answers = []
+    
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_to_query = {
+            executor.submit(single_search, q): q 
+            for q in queries
+        }
+        
+        for future in as_completed(future_to_query):
+            result = future.result()
+            if result["success"]:
+                all_results.extend(result["results"])
+                if result["answer"]:
+                    all_answers.append(f"[{result['query']}] {result['answer']}")
+    
+    # Deduplicate results by URL
+    seen_urls = set()
+    deduplicated_results = []
+    for result in all_results:
+        url = result.get("url", "")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            deduplicated_results.append(result)
+    
+    # Sort by score (relevance)
+    deduplicated_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    
+    return {
+        "results": deduplicated_results,
+        "answers": all_answers,
+        "queries_used": queries
+    }
+
+
+def run_tavily_news_parallel(queries: list[str], max_results: int = 5, days: int = 7) -> list[dict]:
+    """
+    Run multiple Tavily news searches in parallel and merge results.
+    
+    Args:
+        queries: List of search queries (1-3 queries)
+        max_results: Max results per query
+        days: Number of days to search back
+        
+    Returns:
+        List of merged and deduplicated news results
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    def single_news_search(query: str) -> dict:
+        """Execute single news search and return results with query info."""
+        try:
+            result = tavily_client.search_news(query, max_results, days)
+            return {
+                "query": query,
+                "results": result.get("results", []),
+                "success": True
+            }
+        except Exception as e:
+            return {
+                "query": query,
+                "results": [],
+                "success": False,
+                "error": str(e)
+            }
+    
+    # Execute searches in parallel
+    all_results = []
+    
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_to_query = {
+            executor.submit(single_news_search, q): q 
+            for q in queries
+        }
+        
+        for future in as_completed(future_to_query):
+            result = future.result()
+            if result["success"]:
+                all_results.extend(result["results"])
+    
+    # Deduplicate results by URL
+    seen_urls = set()
+    deduplicated_results = []
+    for result in all_results:
+        url = result.get("url", "")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            deduplicated_results.append(result)
+    
+    # Sort by date (newest first)
+    deduplicated_results.sort(
+        key=lambda x: x.get("published_date", ""), 
+        reverse=True
+    )
+    
+    return {
+        "results": deduplicated_results,
+        "queries_used": queries
+    }
+
+
 def run_tavily_search(query: str, search_depth: str = "basic", max_results: int = 5, include_answer: bool = False) -> str:
-    """Run Tavily general web search."""
+    """
+    Run Tavily general web search with automatic query rewriting.
+    
+    The query is automatically rewritten into up to 3 variations to improve
+    search coverage. Results from all queries are merged and deduplicated.
+    
+    Args:
+        query: Search query (will be rewritten automatically)
+        search_depth: "basic" or "advanced"
+        max_results: Max results per query (1-10)
+        include_answer: Whether to include AI-generated answer
+        
+    Returns:
+        JSON string with merged search results
+    """
     if not query:
         return "Error: query is required"
     try:
-        # Parse relative time expressions and add date context to query
-        processed_query, _ = parse_relative_time(query)
-        result = tavily_client.search(processed_query, search_depth, max_results, include_answer)
-        return json_module.dumps(result, indent=2, ensure_ascii=False)
+        # Rewrite query into multiple variations
+        rewritten_queries = rewrite_query(query)
+        
+        # Run parallel searches
+        result = run_tavily_search_parallel(
+            rewritten_queries, 
+            search_depth, 
+            max_results, 
+            include_answer
+        )
+        
+        # Format output
+        output = {
+            "queries_used": result["queries_used"],
+            "answer": result["answers"][0] if result["answers"] else "",
+            "all_answers": result["answers"] if len(result["answers"]) > 1 else [],
+            "results": result["results"]
+        }
+        
+        return json_module.dumps(output, indent=2, ensure_ascii=False)
     except Exception as e:
         return f"Error: {str(e)}"
 
 
 def run_tavily_news(query: str, max_results: int = 5, days: int = 7) -> str:
-    """Run Tavily news search."""
+    """
+    Run Tavily news search with automatic query rewriting.
+    
+    The query is automatically rewritten into up to 3 variations to improve
+    news coverage. Results from all queries are merged and deduplicated.
+    
+    Args:
+        query: News search query (will be rewritten automatically)
+        max_results: Max results per query (1-10)
+        days: Limit to recent N days (auto-detected from query if contains relative time)
+        
+    Returns:
+        JSON string with merged news results
+    """
     if not query:
         return "Error: query is required"
     try:
@@ -638,8 +1044,21 @@ def run_tavily_news(query: str, max_results: int = 5, days: int = 7) -> str:
         # Use parsed days if available, otherwise use default
         if parsed_days is not None:
             days = parsed_days
-        result = tavily_client.search_news(processed_query, max_results, days)
-        return json_module.dumps(result, indent=2, ensure_ascii=False)
+        
+        # Rewrite query into multiple variations
+        rewritten_queries = rewrite_query(query)
+        
+        # Run parallel news searches
+        result = run_tavily_news_parallel(rewritten_queries, max_results, days)
+        
+        # Format output
+        output = {
+            "queries_used": result["queries_used"],
+            "days_searched": days,
+            "results": result["results"]
+        }
+        
+        return json_module.dumps(output, indent=2, ensure_ascii=False)
     except Exception as e:
         return f"Error: {str(e)}"
 

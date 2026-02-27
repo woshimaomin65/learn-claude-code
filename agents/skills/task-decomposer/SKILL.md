@@ -163,18 +163,56 @@ data/{task-name}-{date}/
 
 ### web-browsing
 **Trigger**: User mentions research, literature review, finding papers, downloading code, gathering news, analyzing reports, or navigating multiple web pages
-**Purpose**: Browse the web for research purposes
+**Purpose**: Browse the web for research purposes. **Core search functionality unified with `tavily-search`** for faster, AI-optimized search experience.
 **Key Features**:
+- **tavily-search (PRIMARY/DEFAULT)**: AI-optimized search with structured results
+  - `tavily_search`: General web search (90% of search tasks)
+  - `tavily_news`: News search for latest industry updates and current events
+  - `tavily_fact_check`: Fact-checking and claim verification
 - **Academic paper research**: Finding, reading, summarizing papers from arXiv, Google Scholar, journal websites
 - **Code download**: Finding repositories on GitHub, GitLab, downloading code samples from documentation
 - **News research**: Gathering current events from news websites, press releases, blogs
 - **Research report analysis**: Financial reports, industry analysis, market research from institutional websites
 - **Multi-hop web browsing**: Following citation chains, tracing information sources, comprehensive information gathering
 
+**Tool Selection Decision Tree**:
+```
+Need web information?
+    │
+    ├── Search/Research/Fact-check?
+    │   └──→ ✅ tavily-search (PRIMARY)
+    │       ├── tavily_search - General search
+    │       ├── tavily_news - News search
+    │       └── tavily_fact_check - Fact verification
+    │
+    ├── Fetch known URL content?
+    │   ├── Static page/API
+    │   │   └──→ ⚠️ mcp-fetch (BACKUP - deprecated)
+    │   │
+    │   └── Dynamic page/screenshot/interaction?
+    │       └──→ ⚠️ browser-mcp (SPECIAL CASES ONLY)
+    │
+    └── Real-time data (stocks/weather)?
+        ├── Has official API
+        │   └──→ ⚠️ mcp-fetch fetch_json
+        │
+        └── No API, need web scraping
+            └──→ Try tavily_search first (may have cache)
+```
+
 **Best Practices**:
-- Use for any task requiring external information
+- **DEFAULT to tavily-search** for 90% of search tasks (faster, AI-optimized, structured results)
+- Use mcp-fetch ONLY for known URL content fetching or API calls (being deprecated)
+- Use browser-mcp ONLY for screenshots, interaction, or JavaScript-rendered pages (resource-intensive)
 - Combine with other skills for document creation from research
 - Track sources for citations
+
+**Performance Comparison**:
+| Tool | Speed | Resource | Result Quality | Use Case |
+|------|-------|----------|----------------|----------|
+| tavily-search | ⚡ Fast (1-3s) | 💚 Low | ⭐⭐⭐⭐⭐ AI-optimized | 90% search tasks |
+| mcp-fetch | ⚡ Fast (1-2s) | 💚 Low | ⭐⭐⭐ Raw content | Known URLs, APIs |
+| browser-mcp | 🐌 Slow (5-15s) | 🔴 High | ⭐⭐⭐⭐ Full content | Screenshots, interaction |
 
 ---
 

@@ -1051,10 +1051,40 @@ Use architecture-master + spawn_teammate for large multi-module projects.
 - PDFs → pdf
 - Spreadsheets (.xlsx, .csv) → xlsx
 
-**Research:**
-- Academic papers, literature review → web-browsing
-- Code repositories, documentation → web-browsing
-- News, reports, analysis → web-browsing
+**Research (web-browsing):**
+- **DEFAULT/PRIMARY**: Use tavily-search tools for 90% of search tasks
+  - tavily_search: General web search (fast, AI-optimized)
+  - tavily_news: News and current events search
+  - tavily_fact_check: Fact-checking and claim verification
+- **BACKUP/SPECIAL CASES**:
+  - mcp-fetch: ONLY for known URL content fetching or API calls (deprecated)
+  - browser-mcp: ONLY for screenshots, interaction, JavaScript-rendered pages
+- Academic papers, literature review → web-browsing (tavily_search first)
+- Code repositories, documentation → web-browsing (tavily_search first)
+- News, reports, analysis → web-browsing (tavily_news for news)
+
+**Tool Selection Decision Tree for Research:**
+```
+Need web information?
+    │
+    ├── Search/Research/Fact-check?
+    │   └──→ ✅ tavily-search (PRIMARY - 90% of tasks)
+    │
+    ├── Fetch known URL content?
+    │   ├── Static page/API → ⚠️ mcp-fetch (BACKUP)
+    │   └── Dynamic/screenshot → ⚠️ browser-mcp (SPECIAL)
+    │
+    └── Real-time data?
+        ├── Has API → ⚠️ mcp-fetch fetch_json
+        └── No API → Try tavily_search first
+```
+
+**Performance Comparison:**
+| Tool | Speed | Resource | Use Case |
+|------|-------|----------|----------|
+| tavily-search | ⚡ Fast (1-3s) | 💚 Low | 90% search tasks |
+| mcp-fetch | ⚡ Fast (1-2s) | 💚 Low | Known URLs, APIs |
+| browser-mcp | 🐌 Slow (5-15s) | 🔴 High | Screenshots, interaction |
 
 **Visual/Web:**
 - Web UI, dashboards → frontend-design

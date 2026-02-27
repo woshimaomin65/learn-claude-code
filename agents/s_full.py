@@ -197,31 +197,6 @@ def run_subagent(prompt: str, agent_type: str = "Explore") -> str:
         return "".join(b.text for b in resp.content if hasattr(b, "text")) or "(no summary)"
     return "(subagent failed)"
 
-
-# === SECTION: skills (s05) ===
-#class SkillLoader:
-#    def __init__(self, skills_dir: Path):
-#        self.skills = {}
-#        for f in sorted(skills_dir.glob("*.md")):
-#            text = f.read_text()
-#            match = re.match(r"^---\n(.*?)\n---\n(.*)", text, re.DOTALL)
-#            meta, body = {}, text
-#            if match:
-#                for line in match.group(1).strip().splitlines():
-#                    if ":" in line:
-#                        k, v = line.split(":", 1)
-#                        meta[k.strip()] = v.strip()
-#                body = match.group(2).strip()
-#            self.skills[f.stem] = {"meta": meta, "body": body}
-#
-#
-#        for _dir in sorted(glob(f"{skills_dir}/*")):
-#            for f in glob(f'{_dir}/*.md'):
-#                name = Path(f.rsplit('/', 1)[0]).stem
-#                text = Path(f).read_text()
-#                meta, body = self._parse_frontmatter(text)
-#                self.skills[name] = {"meta": meta, "body": body, "path": str(f)}
-
 class SkillLoader:
     def __init__(self, skills_dir: Path):
         self.skills_dir = skills_dir
@@ -269,14 +244,6 @@ class SkillLoader:
         if not skill:
             return f"Error: Unknown skill '{name}'. Available: {', '.join(self.skills.keys())}"
         return f"<skill name=\"{name}\">\n{skill['body']}\n</skill>"
-    #def descriptions(self) -> str:
-    #    if not self.skills: return "(no skills)"
-    #    return "\n".join(f"  - {n}: {s['meta'].get('description', '-')}" for n, s in self.skills.items())
-
-    #def load(self, name: str) -> str:
-    #    s = self.skills.get(name)
-    #    if not s: return f"Error: Unknown skill '{name}'. Available: {', '.join(self.skills.keys())}"
-    #    return f"<skill name=\"{name}\">\n{s['body']}\n</skill>"
 
 
 # === SECTION: compression (s06) ===

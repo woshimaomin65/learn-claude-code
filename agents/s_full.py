@@ -47,10 +47,164 @@ import uuid
 from pathlib import Path
 from queue import Queue
 from datetime import datetime
+from typing import Any, Dict, List, Union
 
 from llm_config import client, MODEL
 import readline  # Enables line editing (backspace, arrow keys, history)
 from glob import glob
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+
+def setup_logging():
+    """Setup logging directories and return log manager."""
+    # Use workspace log directory
+    log_dir = WORKDIR / ".agent_logs" if WORKDIR else Path("./.agent_logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+
+LOG_DIR = setup_logging()
+
+def generate_log_filename(agent_name: str = "main") -> str:
+    """Generate a timestamped log filename."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return LOG_DIR / f"{agent_name}_{timestamp}.jsonl"
+
+
+def parse_content_block(block: Any) -> Dict[str, Any]:
+    """
+    Parse a content block from response.content into a human-readable dict.
+    
+    Handles different block types:
+    - text: Plain text content
+    - tool_use: Tool/function call with name and input
+    - other: Any other block type
+    """
+    result = {"type": getattr(block, "type", "unknown")}
+    
+    if block.type == "text":
+        result["text"] = getattr(block, "text", "")
+    
+    elif block.type == "tool_use":
+        result["tool_name"] = getattr(block, "name", "unknown")
+        result["tool_input"] = getattr(block, "input", {})
+        result["tool_id"] = getattr(block, "id", "")
+    
+    else:
+        # Fallback: convert to dict or string
+        try:
+            result["data"] = str(block)
+        except Exception as e:
+            result["data"] = f"<unparseable: {e}>"
+    
+    return result
+
+
+def parse_response_content(content: List[Any]) -> List[Dict[str, Any]]:
+    """
+    Parse response.content list into a list of human-readable dicts.
+    
+    Args:
+        content: List of content blocks from Claude API response
+    
+    Returns:
+        List of parsed block dictionaries
+    """
+    parsed = []
+    for block in content:
+        parsed.append(parse_content_block(block))
+    return parsed
+
+
+def parse_messages_for_log(messages: List[Dict]) -> List[Dict]:
+    """
+    Parse messages list for logging, handling both string and content block formats.
+    
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys
+    
+    Returns:
+        List of parsed message dictionaries
+    """
+    parsed = []
+    for msg in messages:
+        parsed_msg = {"role": msg.get("role", "unknown")}
+        content = msg.get("content", "")
+        
+        # Handle different content formats
+        if isinstance(content, str):
+            parsed_msg["content"] = content
+        elif isinstance(content, list):
+            # Parse content blocks
+            parsed_msg["content_blocks"] = parse_response_content(content)
+            # Also extract combined text for quick viewing
+            texts = []
+            for block in content:
+                if hasattr(block, "type") and block.type == "text":
+                    texts.append(getattr(block, "text", ""))
+            parsed_msg["content_text"] = "\n".join(texts)
+        else:
+            parsed_msg["content"] = str(content)
+        
+        parsed.append(parsed_msg)
+    
+    return parsed
+
+
+class AgentLogger:
+    """Logger for agent interactions."""
+    
+    def __init__(self, agent_name: str = "main"):
+        self.agent_name = agent_name
+        self.log_file = generate_log_filename(agent_name)
+        self.call_count = 0
+        self._lock = threading.Lock()
+    
+    def log_call(self, messages: List[Dict], response: Any, results: List = None):
+        """
+        Log a single LLM call with input messages and output response.
+        
+        Args:
+            messages: Input messages sent to the LLM
+            response: Response object from the LLM
+            results: Optional tool execution results
+        """
+        self.call_count += 1
+        
+        log_entry = {
+            "call_id": self.call_count,
+            "timestamp": datetime.now().isoformat(),
+            "agent": self.agent_name,
+            "input": {
+                "message_count": len(messages),
+                "messages": parse_messages_for_log(messages),
+            },
+            "output": {
+                "stop_reason": getattr(response, "stop_reason", "unknown"),
+                "content_blocks": parse_response_content(response.content),
+                "model": getattr(response, "model", ""),
+            },
+        }
+        
+        if results:
+            log_entry["tool_results"] = results
+        
+        with self._lock:
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(log_entry, ensure_ascii=False, indent=2) + "\n")
+    
+    def log_tool_result(self, tool_name: str, result: str):
+        """Log a tool execution result."""
+        entry = {
+            "type": "tool_result",
+            "timestamp": datetime.now().isoformat(),
+            "tool_name": tool_name,
+            "result": result,
+        }
+        with self._lock:
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 WORKDIR = Path.cwd()
 
@@ -74,10 +228,31 @@ VALID_MSG_TYPES = {"message", "broadcast", "shutdown_request",
 def js(data):
     print(json.dumps(data, indent=2, ensure_ascii=False, default=str), flush=True)
 # === SECTION: base_tools ===
-def safe_path(p: str) -> Path:
-    path = (WORKDIR / p).resolve()
-    if not path.is_relative_to(WORKDIR):
-        raise ValueError(f"Path escapes workspace: {p}")
+def safe_path(p: str, allow_outside: bool = False) -> Path:
+    """
+    Resolve and validate a file path.
+    
+    Args:
+        p: The path to resolve (can be absolute or relative)
+        allow_outside: If True, allow paths outside WORKDIR (for reading only)
+                       If False (default), restrict to WORKDIR for safety
+    
+    Returns:
+        Resolved Path object
+    
+    Raises:
+        ValueError: If path escapes WORKDIR and allow_outside is False
+    """
+    # Handle absolute paths directly
+    if os.path.isabs(p):
+        path = Path(p).resolve()
+    else:
+        path = (WORKDIR / p).resolve()
+    
+    # Only restrict paths if WORKDIR is set and allow_outside is False
+    if not allow_outside and WORKDIR:
+        if not path.is_relative_to(WORKDIR):
+            raise ValueError(f"Path escapes workspace: {p}")
     return path
 
 def run_bash(command: str) -> str:
@@ -94,30 +269,90 @@ def run_bash(command: str) -> str:
 
 def run_read(path: str, limit: int = None) -> str:
     try:
-        lines = safe_path(path).read_text(encoding='utf-8').splitlines()
+        # Allow reading files outside WORKDIR (reading is safe)
+        lines = safe_path(path, allow_outside=True).read_text(encoding='utf-8').splitlines()
         if limit and limit < len(lines):
             lines = lines[:limit] + [f"... ({len(lines) - limit} more)"]
         return "\n".join(lines)[:50000]
     except Exception as e:
         return f"Error: {e}"
 
-def run_write(path: str, content: str) -> str:
+def run_write(path: str, content: str, allow_outside: bool = True) -> str:
+    """
+    Write content to a file.
+    
+    Args:
+        path: File path (absolute or relative)
+        content: Content to write
+        allow_outside: If True, allow writing outside WORKDIR (default: True for flexibility)
+    """
     try:
-        fp = safe_path(path)
+        fp = safe_path(path, allow_outside=allow_outside)
         fp.parent.mkdir(parents=True, exist_ok=True)
         fp.write_text(content, encoding='utf-8')
         return f"Wrote {len(content)} bytes to {path}"
     except Exception as e:
         return f"Error: {e}"
 
-def run_edit(path: str, old_text: str, new_text: str) -> str:
+def run_edit(path: str, old_text: str, new_text: str, allow_outside: bool = True) -> str:
+    """
+    Edit a file by replacing text.
+    
+    Args:
+        path: File path (absolute or relative)
+        old_text: Text to find and replace
+        new_text: Replacement text
+        allow_outside: If True, allow editing outside WORKDIR (default: True for flexibility)
+    """
     try:
-        fp = safe_path(path)
+        fp = safe_path(path, allow_outside=allow_outside)
         c = fp.read_text(encoding='utf-8')
         if old_text not in c:
             return f"Error: Text not found in {path}"
         fp.write_text(c.replace(old_text, new_text, 1), encoding='utf-8')
         return f"Edited {path}"
+    except Exception as e:
+        return f"Error: {e}"
+
+def run_set_workdir(path: str) -> str:
+    """
+    Set the working directory for the agent.
+    
+    Args:
+        path: New working directory path (absolute or relative to current WORKDIR)
+    
+    Returns:
+        Confirmation message with the new WORKDIR
+    """
+    global WORKDIR, TEAM_DIR, INBOX_DIR, TASKS_DIR, SKILLS_DIR, TRANSCRIPT_DIR
+    try:
+        if os.path.isabs(path):
+            new_workdir = Path(path).resolve()
+        else:
+            new_workdir = (WORKDIR / path).resolve()
+        
+        if not new_workdir.exists():
+            return f"Error: Directory does not exist: {new_workdir}"
+        if not new_workdir.is_dir():
+            return f"Error: Not a directory: {new_workdir}"
+        
+        WORKDIR = new_workdir
+        
+        # Re-initialize directory-dependent variables
+        TEAM_DIR = WORKDIR / ".team"
+        INBOX_DIR = TEAM_DIR / "inbox"
+        TASKS_DIR = WORKDIR / ".tasks"
+        SKILLS_DIR = WORKDIR / "skills"
+        TRANSCRIPT_DIR = WORKDIR / ".transcripts"
+        
+        # Create necessary directories
+        TEAM_DIR.mkdir(parents=True, exist_ok=True)
+        INBOX_DIR.mkdir(parents=True, exist_ok=True)
+        TASKS_DIR.mkdir(parents=True, exist_ok=True)
+        SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+        TRANSCRIPT_DIR.mkdir(parents=True, exist_ok=True)
+        
+        return f"WORKDIR set to: {WORKDIR}"
     except Exception as e:
         return f"Error: {e}"
 
@@ -161,6 +396,10 @@ class TodoManager:
 
 # === SECTION: subagent (s04) ===
 def run_subagent(prompt: str, agent_type: str = "Explore") -> str:
+    """
+    Run a subagent for isolated exploration or work.
+    Logs all LLM interactions.
+    """
     sub_tools = [
         {"name": "bash", "description": "Run command.",
          "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
@@ -182,8 +421,15 @@ def run_subagent(prompt: str, agent_type: str = "Explore") -> str:
     }
     sub_msgs = [{"role": "user", "content": prompt}]
     resp = None
-    for _ in range(30):
+    # Create logger for subagent
+    subagent_id = str(uuid.uuid4())[:8]
+    logger = AgentLogger(f"subagent_{agent_type}_{subagent_id}")
+    
+    for i in range(30):
         resp = client.messages.create(model=MODEL, messages=sub_msgs, tools=sub_tools, max_tokens=8000)
+        # Log the LLM call
+        logger.log_call(sub_msgs, resp)
+        
         sub_msgs.append({"role": "assistant", "content": resp.content})
         if resp.stop_reason != "tool_use":
             break
@@ -191,7 +437,10 @@ def run_subagent(prompt: str, agent_type: str = "Explore") -> str:
         for b in resp.content:
             if b.type == "tool_use":
                 h = sub_handlers.get(b.name, lambda **kw: "Unknown tool")
-                results.append({"type": "tool_result", "tool_use_id": b.id, "content": str(h(**b.input))[:50000]})
+                result_str = str(h(**b.input))[:50000]
+                results.append({"type": "tool_result", "tool_use_id": b.id, "content": result_str})
+                # Log tool result
+                logger.log_tool_result(b.name, result_str)
         sub_msgs.append({"role": "user", "content": results})
     if resp:
         return "".join(b.text for b in resp.content if hasattr(b, "text")) or "(no summary)"
@@ -737,6 +986,7 @@ TOOL_HANDLERS = {
     "read_file":        lambda **kw: run_read(kw["path"], kw.get("limit")),
     "write_file":       lambda **kw: run_write(kw["path"], kw["content"]),
     "edit_file":        lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
+    "set_workdir":      lambda **kw: run_set_workdir(kw["path"]),
     "TodoWrite":        lambda **kw: TODO.update(kw["items"]),
     "task":             lambda **kw: run_subagent(kw["prompt"], kw.get("agent_type", "Explore")),
     "load_skill":       lambda **kw: SKILLS.load(kw["name"]),
@@ -767,6 +1017,8 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
     {"name": "edit_file", "description": "Replace exact text in file.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
+    {"name": "set_workdir", "description": "Set the working directory for file operations. Use this to switch to a different project folder.",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
     {"name": "TodoWrite", "description": "Update task tracking list.",
      "input_schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {"content": {"type": "string"}, "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]}, "activeForm": {"type": "string"}}, "required": ["content", "status", "activeForm"]}}}, "required": ["items"]}},
     {"name": "task", "description": "Spawn a subagent for isolated exploration or work.",
@@ -809,8 +1061,17 @@ TOOLS = [
 
 
 # === SECTION: agent_loop ===
-def agent_loop(messages: list):
+def agent_loop(messages: list, agent_name: str = "main"):
+    """
+    Main agent loop with LLM interaction and tool execution.
+    
+    Args:
+        messages: Conversation history messages
+        agent_name: Name of the agent for logging purposes
+    """
     rounds_without_todo = 0
+    logger = AgentLogger(agent_name)
+    
     while True:
         # s06: compression pipeline
         microcompact(messages)
@@ -828,12 +1089,17 @@ def agent_loop(messages: list):
         if inbox:
             messages.append({"role": "user", "content": f"<inbox>{json.dumps(inbox, indent=2)}</inbox>"})
             messages.append({"role": "assistant", "content": "Noted inbox messages."})
-        # LLM call
+        
+        # LLM call - log the call after response
         client.auth_token = client.api_key
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
+        
+        # Log the LLM call (input messages and output response)
+        logger.log_call(messages, response)
+        
         print('\n'*2, flush=True)
         print('-'*40, flush=True)
         print('模型的输出:', flush=True)
@@ -857,6 +1123,8 @@ def agent_loop(messages: list):
                     output = f"Error: {e}"
                 print(f"> {block.name}: {str(output)[:200]}", flush=True)
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)})
+                # Log tool result
+                logger.log_tool_result(block.name, str(output))
                 if block.name == "TodoWrite":
                     used_todo = True
         # s03: nag reminder (only when todo workflow is active)
@@ -903,7 +1171,7 @@ if __name__ == "__main__":
             print(json.dumps(BUS.read_inbox("lead"), indent=2), flush=True)
             continue
         history.append({"role": "user", "content": query})
-        agent_loop(history)
+        agent_loop(history, agent_name="lead")
         # Save query result to markdown file
         # Get the last assistant response from history
         result = ""

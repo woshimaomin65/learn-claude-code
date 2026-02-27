@@ -52,6 +52,123 @@ from typing import Any, Dict, List, Union
 from llm_config import client, MODEL
 import readline  # Enables line editing (backspace, arrow keys, history)
 from glob import glob
+import urllib.request
+import ssl
+import json as json_module
+
+
+# =============================================================================
+# TAVILY SEARCH MCP CLIENT
+# =============================================================================
+
+class TavilyConfig:
+    """Configuration for Tavily API."""
+    BASE_URL = "https://api.tavily.com"
+    
+    @classmethod
+    def get_api_key(cls):
+        """Get Tavily API key from environment."""
+        return os.getenv("TAVILY_API_KEY", "")
+
+
+class TavilyClient:
+    """Client for interacting with Tavily Search MCP API."""
+    
+    def __init__(self):
+        self.base_url = TavilyConfig.BASE_URL
+        self.api_key = TavilyConfig.get_api_key()
+        self.timeout = 30
+        
+    def _create_ssl_context(self):
+        """Create SSL context for HTTPS requests."""
+        return ssl.create_default_context()
+    
+    def _make_request(self, endpoint, data):
+        """Make HTTP POST request to Tavily API."""
+        url = f"{self.base_url}/{endpoint}"
+        
+        # Prepare request data
+        request_data = json_module.dumps({
+            "api_key": self.api_key,
+            **data
+        }).encode('utf-8')
+        
+        # Create request
+        req = urllib.request.Request(
+            url,
+            data=request_data,
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        # Make request
+        try:
+            context = self._create_ssl_context()
+            with urllib.request.urlopen(req, context=context, timeout=self.timeout) as response:
+                return json_module.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            return {"error": f"HTTP Error {e.code}: {e.reason}", "response": e.read().decode('utf-8')}
+        except urllib.error.URLError as e:
+            return {"error": f"URL Error: {e.reason}"}
+        except Exception as e:
+            return {"error": f"Request failed: {str(e)}"}
+    
+    def search(self, query, search_depth="basic", max_results=5, include_answer=False):
+        """General web search using Tavily API.
+        
+        Args:
+            query: Search query string
+            search_depth: "basic" or "advanced"
+            max_results: Maximum number of results (1-10)
+            include_answer: Include answer summary
+            
+        Returns:
+            Dict with search results
+        """
+        data = {
+            "query": query,
+            "search_depth": search_depth,
+            "max_results": min(max(1, max_results), 10),
+            "include_answer": include_answer,
+        }
+        return self._make_request("search", data)
+    
+    def search_news(self, query, max_results=5, days=7):
+        """Search for news articles using Tavily API.
+        
+        Args:
+            query: News search query string
+            max_results: Maximum number of results (1-10)
+            days: Limit to recent N days
+            
+        Returns:
+            Dict with news results
+        """
+        data = {
+            "query": query,
+            "max_results": min(max(1, max_results), 10),
+            "days": days,
+        }
+        return self._make_request("search/news", data)
+    
+    def fact_check(self, claim):
+        """Fact-check claims using Tavily API.
+        
+        Args:
+            claim: Claim or statement to verify
+            
+        Returns:
+            Dict with fact-check results
+        """
+        data = {
+            "query": claim,
+            "search_depth": "advanced",
+            "max_results": 10,
+        }
+        return self._make_request("search", data)
+
+
+# Initialize Tavily client instance
+tavily_client = TavilyClient()
 
 # =============================================================================
 # LOGGING CONFIGURATION
@@ -417,6 +534,40 @@ def run_bash(command: str) -> str:
         return out[:50000] if out else "(no output)"
     except subprocess.TimeoutExpired:
         return "Error: Timeout (120s)"
+
+def run_tavily_search(query: str, search_depth: str = "basic", max_results: int = 5, include_answer: bool = False) -> str:
+    """Run Tavily general web search."""
+    if not query:
+        return "Error: query is required"
+    try:
+        result = tavily_client.search(query, search_depth, max_results, include_answer)
+        return json_module.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+def run_tavily_news(query: str, max_results: int = 5, days: int = 7) -> str:
+    """Run Tavily news search."""
+    if not query:
+        return "Error: query is required"
+    try:
+        result = tavily_client.search_news(query, max_results, days)
+        return json_module.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+def run_tavily_fact_check(claim: str) -> str:
+    """Run Tavily fact check."""
+    if not claim:
+        return "Error: claim is required"
+    try:
+        result = tavily_client.fact_check(claim)
+        return json_module.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
 
 def run_read(path: str, limit: int = None) -> str:
     try:
@@ -1189,6 +1340,9 @@ def save_query_result(query: str, result: str, logger: AgentLogger = None) -> st
 # === SECTION: tool_dispatch (s02) ===
 TOOL_HANDLERS = {
     "bash":             lambda **kw: run_bash(kw["command"]),
+    "tavily_search":      lambda **kw: run_tavily_search(kw["query"], kw.get("search_depth", "basic"), kw.get("max_results", 5), kw.get("include_answer", False)),
+    "tavily_news":        lambda **kw: run_tavily_news(kw["query"], kw.get("max_results", 5), kw.get("days", 7)),
+    "tavily_fact_check":  lambda **kw: run_tavily_fact_check(kw["claim"]),
     "read_file":        lambda **kw: run_read(kw["path"], kw.get("limit")),
     "write_file":       lambda **kw: run_write(kw["path"], kw["content"]),
     "edit_file":        lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
@@ -1263,6 +1417,13 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "claim_task", "description": "Claim a task from the board.",
      "input_schema": {"type": "object", "properties": {"task_id": {"type": "integer"}}, "required": ["task_id"]}},
+    # Tavily Search MCP tools
+    {"name": "tavily_search", "description": "General web search using Tavily API. Use this for most research tasks, finding information online, or answering questions requiring web knowledge.",
+     "input_schema": {"type": "object", "properties": {"query": {"type": "string", "description": "Search query"}, "search_depth": {"type": "string", "enum": ["basic", "advanced"], "description": "Search depth"}, "max_results": {"type": "integer", "description": "Maximum results (1-10)"}, "include_answer": {"type": "boolean", "description": "Include answer summary"}}, "required": ["query"]}},
+    {"name": "tavily_news", "description": "Search for news articles using Tavily API. Use for current events, recent news, or time-sensitive information.",
+     "input_schema": {"type": "object", "properties": {"query": {"type": "string", "description": "News search query"}, "max_results": {"type": "integer", "description": "Maximum results (1-10)"}, "days": {"type": "integer", "description": "Limit to recent N days"}}, "required": ["query"]}},
+    {"name": "tavily_fact_check", "description": "Fact-check claims or statements using Tavily API. Use to verify information accuracy or check specific claims.",
+     "input_schema": {"type": "object", "properties": {"claim": {"type": "string", "description": "Claim or statement to verify"}}, "required": ["claim"]}}
 ]
 
 

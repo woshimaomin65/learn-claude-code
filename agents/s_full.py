@@ -46,12 +46,17 @@ import time
 import uuid
 from pathlib import Path
 from queue import Queue
+from datetime import datetime
 
 from llm_config import client, MODEL
 import readline  # Enables line editing (backspace, arrow keys, history)
 from glob import glob
 
 WORKDIR = Path.cwd()
+
+# Output directory for saving query results
+OUTPUT_DIR = Path("/Users/maomin/programs/vscode/learn-claude-code/agents/data/output")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 TEAM_DIR = WORKDIR / ".team"
 INBOX_DIR = TEAM_DIR / "inbox"
@@ -653,6 +658,43 @@ def handle_plan_review(request_id: str, approve: bool, feedback: str = "") -> st
     return f"Plan {req['status']} for '{req['from']}'"
 
 
+# === SECTION: save query result ===
+def sanitize_filename(query: str, max_len: int = 50) -> str:
+    """Sanitize user query to create a valid filename."""
+    # Remove special characters and replace spaces with underscores
+    sanitized = re.sub(r'[^\w\s\u4e00-\u9fff-]', '', query)
+    sanitized = re.sub(r'\s+', '_', sanitized.strip())
+    # Limit length
+    if len(sanitized) > max_len:
+        sanitized = sanitized[:max_len]
+    return sanitized
+
+def save_query_result(query: str, result: str) -> str:
+    """Save query and result to markdown file in OUTPUT_DIR."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename_part = sanitize_filename(query)
+    filename = f"{timestamp}_{filename_part}.md"
+    filepath = OUTPUT_DIR / filename
+    
+    markdown_content = f"""# Query Result
+
+## Query
+{query}
+
+## Timestamp
+{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+## Result
+{result}
+"""
+    
+    try:
+        filepath.write_text(markdown_content, encoding='utf-8')
+        return f"Saved to {filepath}"
+    except Exception as e:
+        return f"Error saving result: {e}"
+
+
 # === SECTION: tool_dispatch (s02) ===
 TOOL_HANDLERS = {
     "bash":             lambda **kw: run_bash(kw["command"]),
@@ -825,4 +867,14 @@ if __name__ == "__main__":
             continue
         history.append({"role": "user", "content": query})
         agent_loop(history)
+        # Save query result to markdown file
+        # Get the last assistant response from history
+        result = ""
+        for msg in reversed(history):
+            if msg.get("role") == "assistant":
+                result = msg.get("content", "")
+                break
+        if result:
+            save_path = save_query_result(query, result)
+            print(f"\033[90m{save_path}\033[0m")
         print()

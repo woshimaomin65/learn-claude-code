@@ -166,21 +166,35 @@ class AgentLogger:
         self._lock = threading.Lock()
     
     def _trim_log_if_needed(self, f):
-        """Trim log file to keep only the latest MAX_LOG_LINES entries.
-        
-        Args:
-            f: File object that has just been written to
         """
+        Expert Tip: 不要直接在原本的写入句柄上进行 trim。
+        关闭写入句柄，以读写模式 ('r+') 打开文件，或者使用临时文件。
+        """
+        # 1. 确保写入已完成
         f.flush()
-        f.seek(0)
-        lines = f.readlines()
-        
-        if len(lines) > self.MAX_LOG_LINES:
-            # Keep only the latest MAX_LOG_LINES
-            lines = lines[-self.MAX_LOG_LINES:]
-            f.seek(0)
-            f.truncate()
-            f.writelines(lines)
+        file_path = f.name
+    
+        # 2. 如果文件是 append 模式，无法直接 read，必须关闭后重新打开
+        # 这里建议在外部统一管理 file_handle，或者在这里进行重新打开
+        f.close() 
+    
+        # 3. 以读写模式打开文件
+        with open(file_path, 'r+') as file:
+            lines = file.readlines()
+            
+            # 4. 判断是否需要修剪
+            if len(lines) > self.MAX_LOG_LINES:
+                # 只保留最后 MAX_LOG_LINES 行
+                trimmed_lines = lines[-self.MAX_LOG_LINES:]
+                
+                # 5. 截断文件并重写
+                file.seek(0)
+                file.truncate()
+                file.writelines(trimmed_lines)
+                
+        # 6. 重要：函数结束前重新以 append 模式打开，以便后续继续追加
+        # 注意：这里需要你重新给 self.file_handle 赋值
+        self.file_handle = open(file_path, 'a')
     
     def log_call(self, messages: List[Dict], response: Any, results: List = None):
         """

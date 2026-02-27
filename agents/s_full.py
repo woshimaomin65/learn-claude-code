@@ -661,26 +661,27 @@ def rewrite_query(query: str) -> list[str]:
             break
     
     # Strategy 2: Add English terms for international topics
+    # Add English equivalent after the Chinese term using space
     english_equivalents = {
-        '金价': 'gold price USD',
-        '黄金': 'gold price',
+        '金价': 'gold price',
+        '黄金': 'gold',
         '特斯拉': 'Tesla',
         '苹果': 'Apple',
         '微软': 'Microsoft',
         '谷歌': 'Google',
-        'AI': 'AI artificial intelligence',
-        '人工智能': 'artificial intelligence AI',
-        '大模型': 'LLM large language model',
-        '芯片': 'chip semiconductor',
-        '股票': 'stock price',
-        '销量': 'sales revenue',
+        'AI': 'artificial intelligence',
+        '人工智能': 'AI',
+        '大模型': 'LLM',
+        '芯片': 'semiconductor chip',
+        '股票': 'stock',
+        '销量': 'sales',
         '股价': 'stock price',
     }
     
     for cn_term, en_term in english_equivalents.items():
         if cn_term in processed_query and len(rewritten) < 3:
-            # Create a variant with English term
-            variant = processed_query.replace(cn_term, f"{cn_term} {en_term}")
+            # Create a variant by adding English after Chinese with space
+            variant = processed_query.replace(cn_term, f"{cn_term} {en_term}", 1)
             if variant not in rewritten:
                 rewritten.append(variant)
             break

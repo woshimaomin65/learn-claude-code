@@ -803,7 +803,8 @@ if __name__ == "__main__":
     history = []
     while True:
         try:
-            query = input("\033[36ms_full >> \033[0m")
+            # Use \001 and \002 to wrap non-printing ANSI sequences for readline
+            query = input("\001\033[36m\002s_full >> \001\033[0m\002")
         except (EOFError, KeyboardInterrupt):
             break
         if query.strip().lower() in ("q", "exit", ""):

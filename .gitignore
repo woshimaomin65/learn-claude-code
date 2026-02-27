@@ -224,3 +224,8 @@ test_providers.py
 .DS_Store
 settings.json
 extensions.json
+dist
+node_modules
+package-*
+package.json
+test*

@@ -47,24 +47,25 @@ npm install
 
 ## 配置
 
-### 获取 API Key
+### ✅ API Key 已配置
+
+本项目已配置好 Tavily API Key，可直接使用。
+
+如需更换 API Key，请编辑 `.env` 文件：
+
+```bash
+# 编辑 .env 文件
+vi .env
+
+# 或在命令行设置
+export TAVILY_API_KEY="your-new-api-key"
+```
+
+### 原始获取方式（如需新 key）
 
 1. 访问 [Tavily AI](https://tavily.com/)
 2. 注册账号
 3. 在 Dashboard 获取 API Key
-
-### 设置环境变量
-
-```bash
-# macOS/Linux
-export TAVILY_API_KEY="your-api-key-here"
-
-# Windows (PowerShell)
-$env:TAVILY_API_KEY="your-api-key-here"
-
-# Windows (CMD)
-set TAVILY_API_KEY=your-api-key-here
-```
 
 ## 使用
 

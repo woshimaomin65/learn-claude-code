@@ -26,19 +26,11 @@
 
 ### 配置
 
-```json
-{
-  "mcpServers": {
-    "tavily-search": {
-      "command": "node",
-      "args": ["/Users/maomin/programs/gitcode/learn-claude-code/agents/mcps/tavily-search/index.js"],
-      "env": {
-        "TAVILY_API_KEY": "your-api-key-here"
-      }
-    }
-  }
-}
-```
+**✅ API Key 已配置**，可直接使用。
+
+配置文件位置：`/Users/maomin/programs/gitcode/learn-claude-code/agents/mcps/tavily-search/.env`
+
+如需更换 API Key，编辑该文件即可。
 
 ### 可用工具
 

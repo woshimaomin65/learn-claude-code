@@ -1,504 +1,205 @@
----
-name: web-browsing
-description: Use this skill when the user needs to browse the web for research purposes. This includes: academic paper research (finding, reading, and summarizing papers from arXiv, Google Scholar, journal websites), code download (finding repositories on GitHub, GitLab, downloading code samples from documentation), news research (gathering current events from news websites, press releases, blogs), research report analysis (financial reports, industry analysis, market research from institutional websites), and multi-hop web browsing (navigating through multiple linked pages to gather comprehensive information, follow citation chains, trace information sources). Make sure to use this skill whenever the user mentions research, literature review, finding papers, downloading code, gathering news, analyzing reports, or needs to navigate multiple web pages to accomplish a goal.
-license: Proprietary
----
+# Web Browsing Skill
 
-# Web Browsing Research Guide
+## 概述
 
-## Overview
+此技能提供网页浏览和信息检索能力，通过 MCP (Model Context Protocol) 与 `mcp-fetch` 服务器交互。
 
-This skill enables comprehensive web-based research using the MCP Fetch server. It covers academic paper research, code discovery and download, news gathering, research report analysis, and multi-hop browsing strategies to achieve complex research goals.
+## MCP 服务器配置
 
-## Prerequisites
-
-Ensure the MCP Fetch server is configured and running. The server provides these tools:
-- `fetch_url`: Get webpage content as Markdown
-- `fetch_url_raw`: Get raw HTML
-- `fetch_json`: Call JSON APIs
-- `search_text`: Search within page content
-
-## Research Workflows
-
-### 1. 论文调研 (Academic Paper Research)
-
-#### Finding Papers
-
-**arXiv Search:**
-```
-https://arxiv.org/search/?query={keyword}&searchtype=all
-```
-
-**Google Scholar:**
-```
-https://scholar.google.com/scholar?q={keyword}
-```
-
-**Semantic Scholar:**
-```
-https://www.semanticscholar.org/search?q={keyword}
-```
-
-#### Paper Analysis Workflow
-
-1. **Search for papers** using the search URLs above
-2. **Extract paper titles and abstracts** using `search_text` to find relevant terms
-3. **Access paper pages** using `fetch_url` to get full abstract and metadata
-4. **Find PDF links** by searching for ".pdf" in the page content
-5. **Download PDFs** (use the pdf skill to process downloaded papers)
-6. **Track citations** by following citation links (multi-hop)
-
-#### Example: Finding ML Papers
+### 服务器位置
 
 ```
-1. Use fetch_url to search arXiv for "transformer attention mechanism"
-2. Use search_text to find papers with high citation counts
-3. Use fetch_url to get paper details from top 5 results
-4. Extract: title, authors, abstract, citation count, PDF link
-5. Use fetch_json for citation APIs if available
+/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch/
 ```
 
-#### Key Information to Extract
+### Claude Desktop 配置
 
-- **Title and Authors**: For citation and attribution
-- **Abstract**: Quick relevance assessment
-- **Publication Venue**: Conference/journal quality
-- **Citation Count**: Impact measurement
-- **PDF Link**: Full text access
-- **Code Link**: Implementation availability
-- **Related Work**: Citation chain for multi-hop
+在 Claude Desktop 的配置文件（`~/Library/Application Support/Claude/claude_desktop_config.json`）中添加：
 
-### 2. 代码下载 (Code Download)
-
-#### GitHub Repository Discovery
-
-**Search Pattern:**
-```
-https://github.com/search?q={keyword}&type=repositories
+```json
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "node",
+      "args": ["/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch/dist/index.js"],
+      "env": {}
+    }
+  }
+}
 ```
 
-**Repository Analysis:**
-1. Use `fetch_url` to get repository page
-2. Extract: stars, forks, last update, description
-3. Find README using `search_text` for "README"
-4. Locate download/install instructions
-5. Identify main code files and structure
+### 验证配置
 
-#### Code Download Strategies
+配置完成后，可以通过以下方式验证 MCP 服务器是否正常工作：
 
-**Direct Repository:**
-```
-https://github.com/{user}/{repo}/archive/refs/heads/main.zip
+```bash
+# 测试 MCP 服务器启动
+node /Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch/dist/index.js
 ```
 
-**Specific File:**
+## 可用工具
+
+### 1. fetch_url
+
+**用途**: 获取网页内容并转换为 Markdown 格式。适合读取文章、文档、博客等文本内容。
+
+**参数**:
+- `url` (string, 必填): 要获取的网页 URL
+- `timeout` (number, 可选): 请求超时时间（毫秒），默认 30000
+
+**示例**:
 ```
-https://raw.githubusercontent.com/{user}/{repo}/{branch}/{path}
-```
-
-#### Repository Evaluation Checklist
-
-- ⭐ **Stars**: >100 indicates community interest
-- 📅 **Last Update**: <6 months = actively maintained
-- 📝 **README Quality**: Clear documentation
-- 🔧 **Issues**: Open/closed ratio shows maintenance
-- 📦 **Dependencies**: Check requirements.txt, package.json
-- 🧪 **Tests**: Presence of test files
-
-#### Example: Download Python Library
-
-```
-1. Search GitHub: "python data visualization"
-2. Filter by: stars > 1000, updated < 6 months
-3. Use fetch_url on top 3 repositories
-4. Extract: install command, usage example, API docs
-5. Use fetch_url_raw if needed for code structure
-6. Download: Provide direct download link or clone command
+fetch_url({
+  "url": "https://example.com/article"
+})
 ```
 
-### 3. 新闻调研 (News Research)
+### 2. fetch_url_raw
 
-#### News Source Categories
+**用途**: 获取网页的原始 HTML 内容。适合需要分析 HTML 结构的场景。
 
-**General News:**
-- Reuters, AP News, BBC, CNN
-- TechCrunch, Wired (technology)
-- Bloomberg, WSJ (business)
+**参数**:
+- `url` (string, 必填): 要获取的网页 URL
+- `timeout` (number, 可选): 请求超时时间（毫秒），默认 30000
 
-**Industry-Specific:**
-- VentureBeat (AI/tech startups)
-- Nature News (science)
-- Stat (healthcare/biotech)
-
-#### News Gathering Workflow
-
-1. **Identify sources** relevant to topic
-2. **Use fetch_url** to get news page content
-3. **Use search_text** to find specific keywords
-4. **Extract key information**:
-   - Headline and date
-   - Key facts and figures
-   - Quotes from sources
-   - Related article links
-5. **Cross-reference** multiple sources
-6. **Track timeline** for developing stories
-
-#### Information Extraction Template
-
-```markdown
-## News Item: [Headline]
-
-**Source**: [Publication]
-**Date**: [Publication Date]
-**Author**: [Author if available]
-
-### Key Points
-- Point 1
-- Point 2
-- Point 3
-
-### Quotes
-> "Direct quote from article"
-
-### Related Links
-- [Link 1](url)
-- [Link 2](url)
+**示例**:
+```
+fetch_url_raw({
+  "url": "https://example.com"
+})
 ```
 
-#### Multi-Source Verification
+### 3. fetch_json
 
-For important news:
-1. Find 3+ independent sources
-2. Compare facts and figures
-3. Note any discrepancies
-4. Identify original source if possible
+**用途**: 获取 JSON 格式的 API 响应。适合调用 REST API。
 
-### 4. 研报调研 (Research Report Analysis)
+**参数**:
+- `url` (string, 必填): API 的 URL
+- `method` (string, 可选): HTTP 方法，GET/POST/PUT/DELETE，默认 GET
+- `body` (object, 可选): 请求体（JSON 对象）
+- `headers` (object, 可选): 自定义请求头
+- `timeout` (number, 可选): 请求超时时间（毫秒），默认 30000
 
-#### Report Sources
-
-**Financial Research:**
-- Goldman Sachs Research
-- Morgan Stanley Insights
-- J.P. Morgan Research
-
-**Industry Analysis:**
-- Gartner
-- Forrester
-- IDC
-- McKinsey & Company
-
-**Government/Institutional:**
-- World Bank Reports
-- IMF Publications
-- National Bureau of Statistics
-
-#### Report Analysis Workflow
-
-1. **Find report** using search or direct URL
-2. **Use fetch_url** to get summary/landing page
-3. **Identify PDF link** for full report
-4. **Extract key sections**:
-   - Executive summary
-   - Market size/growth data
-   - Key findings
-   - Recommendations
-5. **Use pdf skill** to process full report
-6. **Create summary table** of key metrics
-
-#### Key Metrics to Extract
-
-| Metric Type | What to Look For |
-|-------------|------------------|
-| Market Size | Total addressable market, current value |
-| Growth Rate | CAGR, YoY growth |
-| Segments | Market breakdown by category |
-| Trends | Key industry trends identified |
-| Forecasts | Future projections with timelines |
-| Risks | Identified risks and challenges |
-
-### 5. 多跳浏览 (Multi-Hop Browsing)
-
-#### What is Multi-Hop Browsing?
-
-Multi-hop browsing means navigating through multiple linked pages to gather comprehensive information. Each "hop" is one page navigation.
-
-#### When to Use Multi-Hop
-
-- **Citation chasing**: Paper → Citations → Citing papers
-- **Source tracing**: News article → Original source → Primary data
-- **Documentation depth**: Overview → API docs → Code examples
-- **Company research**: Homepage → About → Team → Press releases
-- **Product research**: Main page → Features → Specs → Reviews
-
-#### Multi-Hop Strategy
-
+**示例**:
 ```
-Hop 0: Starting page (search results, landing page)
-  ↓
-Hop 1: First level links (paper pages, article pages)
-  ↓
-Hop 2: Second level (PDFs, full articles, detailed specs)
-  ↓
-Hop 3: Third level (citations, references, related work)
+fetch_json({
+  "url": "https://api.example.com/data",
+  "method": "GET",
+  "headers": {
+    "Authorization": "Bearer token123"
+  }
+})
 ```
 
-#### Information Tracking
+### 4. search_text
 
-Create a navigation map:
+**用途**: 在网页内容中搜索指定文本，返回包含搜索词的上下文片段。
 
-```markdown
-## Research Path
+**参数**:
+- `url` (string, 必填): 要搜索的网页 URL
+- `query` (string, 必填): 要搜索的文本
+- `contextSize` (number, 可选): 每个匹配项周围的上下文大小（字符数），默认 200
+- `maxResults` (number, 可选): 最大返回结果数，默认 10
+- `timeout` (number, 可选): 请求超时时间（毫秒），默认 30000
 
-**Goal**: [What you're trying to find]
-
-**Hop 0**: [Starting URL]
-- Found: [Key findings]
-- Next: [Links to follow]
-
-**Hop 1**: [Second URL]
-- Found: [Key findings]
-- Next: [Links to follow]
-
-**Hop 2**: [Third URL]
-- Found: [Final information]
-- Conclusion: [Summary]
+**示例**:
+```
+search_text({
+  "url": "https://example.com/docs",
+  "query": "API endpoint",
+  "maxResults": 5
+})
 ```
 
-#### Multi-Hop Example: Research Paper Deep Dive
+## 使用场景
+
+| 场景 | 推荐工具 | 说明 |
+|------|---------|------|
+| 阅读文章/博客 | `fetch_url` | 自动转换为易读的 Markdown |
+| 调用 REST API | `fetch_json` | 直接获取结构化 JSON 数据 |
+| 分析网页结构 | `fetch_url_raw` | 获取原始 HTML 进行分析 |
+| 查找特定信息 | `search_text` | 在长页面中快速定位关键词 |
+| 金融数据查询 | `fetch_json` | 获取股票、汇率、金价等 API 数据 |
+| 学术论文检索 | `fetch_url` + `search_text` | 读取论文并搜索关键概念 |
+| 新闻收集 | `fetch_url` | 批量获取新闻内容 |
+
+## 最佳实践
+
+### 1. 优先使用官方 API
 
 ```
-Goal: Understand transformer architecture evolution
-
-Hop 0: "Attention is All You Need" paper page
-- Found: Original transformer paper
-- Links: Citations (80,000+), Related work
-
-Hop 1: Top 5 cited papers from citations list
-- Found: BERT, GPT, T5, ViT, etc.
-- Links: Their citations, code repositories
-
-Hop 2: BERT paper + code repository
-- Found: Pre-training methodology, implementation
-- Links: Fine-tuning examples, downstream tasks
-
-Hop 3: Fine-tuning guides and benchmarks
-- Found: Best practices, performance metrics
-- Conclusion: Complete evolution chain documented
+✅ 推荐：fetch_json({ url: "https://api.github.com/repos/..." })
+❌ 不推荐：fetch_url_raw 解析 HTML 提取数据
 ```
 
-#### Avoiding Common Pitfalls
-
-| Pitfall | Solution |
-|---------|----------|
-| Getting lost in links | Keep a navigation log |
-| Too many hops (10+) | Limit to 3-5 most relevant |
-| Missing original source | Always trace back to primary |
-| Outdated information | Check publication dates |
-| Circular references | Recognize and break loops |
-
-## Tool Usage Guide
-
-### fetch_url - Main Content Retrieval
+### 2. 设置合理的超时时间
 
 ```
-Best for: Articles, documentation, paper abstracts, news
-Output: Clean Markdown format
-Use when: You need readable text content
+- 普通网页：30000ms (默认)
+- 大型页面：60000ms
+- API 调用：10000ms
 ```
 
-### fetch_url_raw - HTML Analysis
+### 3. 错误处理
 
-```
-Best for: Finding specific elements, debugging, custom parsing
-Output: Raw HTML
-Use when: Markdown conversion loses important structure
-```
+当工具返回错误时：
+1. 检查 URL 是否正确
+2. 确认网站是否可公开访问
+3. 尝试增加超时时间
+4. 考虑使用备用数据源
 
-### fetch_json - API Calls
+### 4. 多源验证
 
+对于重要数据，建议从多个来源验证：
 ```
-Best for: GitHub API, arXiv API, data services
-Output: Structured JSON data
-Use when: Website has a public API
-```
-
-### search_text - In-Page Search
-
-```
-Best for: Finding specific terms in long pages
-Output: Context snippets around matches
-Use when: Looking for specific keywords/data points
+1. 官方 API → fetch_json
+2. 新闻网站 → fetch_url
+3. 数据平台 → fetch_json/fetch_url
 ```
 
-## Research Quality Checklist
+## 限制与注意事项
 
-### Source Evaluation (CRAAP Test)
+| 限制 | 说明 | 解决方案 |
+|------|------|---------|
+| JavaScript 渲染 | 无法执行 JS，只能获取初始 HTML | 寻找 API 端点或使用 fetch_json |
+| 登录墙 | 无法访问需要登录的内容 | 使用公开数据源 |
+| 反爬虫 | 部分网站会阻止自动化访问 | 降低请求频率，使用 API |
+| 速率限制 | API 可能有请求频率限制 | 添加请求间隔，缓存结果 |
+| 付费内容 | 无法绕过付费墙 | 寻找免费替代源 |
 
-- **Currency**: When was it published? Updated?
-- **Relevance**: Does it answer your research question?
-- **Authority**: Who published it? What are their credentials?
-- **Accuracy**: Is it supported by evidence? Peer-reviewed?
-- **Purpose**: Why was it created? Any bias?
+## 故障排除
 
-### Information Triangulation
+### 问题：MCP 服务器未响应
 
-For critical claims:
-1. Find 3+ independent sources
-2. Verify facts match across sources
-3. Note any contradictions
-4. Identify most authoritative source
+**解决方案**:
+```bash
+# 1. 检查 Node.js 是否安装
+node --version
 
-### Documentation Standards
+# 2. 安装依赖
+cd /Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch
+npm install
 
-Always record:
-- Full URL of each source
-- Access date (web content can change)
-- Key quotes (with page/section)
-- Summary in your own words
+# 3. 构建项目
+npm run build
 
-## Output Templates
-
-### Research Summary Template
-
-```markdown
-# Research Summary: [Topic]
-
-## Executive Summary
-[Brief 2-3 sentence overview]
-
-## Key Findings
-
-### Finding 1: [Title]
-- Source: [Publication/Site]
-- Date: [Date]
-- Details: [Summary]
-
-### Finding 2: [Title]
-- Source: [Publication/Site]
-- Date: [Date]
-- Details: [Summary]
-
-## Data Points
-| Metric | Value | Source |
-|--------|-------|--------|
-| [Metric 1] | [Value] | [Source] |
-| [Metric 2] | [Value] | [Source] |
-
-## Sources
-1. [Source 1 Name](URL) - [Brief description]
-2. [Source 2 Name](URL) - [Brief description]
-3. [Source 3 Name](URL) - [Brief description]
-
-## Research Path
-[Hop 0 → Hop 1 → Hop 2 summary]
+# 4. 重启 Claude Desktop
 ```
 
-### Literature Review Template
+### 问题：工具调用失败
 
-```markdown
-# Literature Review: [Topic]
+**检查清单**:
+- [ ] MCP 服务器配置路径正确
+- [ ] dist/index.js 文件存在
+- [ ] Claude Desktop 已重启
+- [ ] 网络连接正常
 
-## Search Strategy
-- Databases: [arXiv, Google Scholar, etc.]
-- Keywords: [list of search terms]
-- Date Range: [from - to]
-- Results: [number of papers found]
+## 相关文件
 
-## Key Papers
+- MCP 服务器代码：`/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch/index.ts`
+- 配置文件：`~/Library/Application Support/Claude/claude_desktop_config.json`
+- 依赖安装：`/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch/package.json`
 
-### [Paper Title 1]
-**Authors**: [Author list]
-**Venue**: [Conference/Journal]
-**Year**: [Year]
-**Citations**: [Count]
-**Summary**: [2-3 sentences]
-**Key Contribution**: [Main contribution]
+## 更新日志
 
-### [Paper Title 2]
-...
-
-## Trends Identified
-- [Trend 1]
-- [Trend 2]
-- [Trend 3]
-
-## Gaps and Future Work
-- [Gap 1]
-- [Gap 2]
-```
-
-## Best Practices
-
-### Efficiency Tips
-
-1. **Start broad, then narrow**: Begin with overview pages, then dive into specifics
-2. **Use APIs when available**: Faster and more structured than scraping
-3. **Parallel fetches**: When researching multiple sources, fetch them in parallel
-4. **Save intermediate results**: Don't re-fetch the same pages
-5. **Set timeout limits**: Don't wait forever for slow pages
-
-### Quality Tips
-
-1. **Check dates**: Web content ages quickly
-2. **Verify against multiple sources**: Don't trust single sources
-3. **Look for primary sources**: Go to original when possible
-4. **Note limitations**: Acknowledge what you couldn't verify
-5. **Document everything**: Keep detailed research logs
-
-### Ethical Considerations
-
-1. **Respect robots.txt**: Follow website crawling policies
-2. **Rate limiting**: Don't overwhelm servers with requests
-3. **Attribution**: Always cite sources properly
-4. **Terms of service**: Comply with website ToS
-5. **Paywalls**: Don't attempt to bypass access controls
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| Page won't load | Try fetch_url_raw, check if JavaScript required |
-| Content missing | Site may require login or have anti-bot measures |
-| API rate limited | Add delays between requests, use authentication |
-| PDF links broken | Try alternative sources, institutional repositories |
-| Too much content | Use search_text to find specific sections |
-
-## Quick Reference
-
-### Common Search URLs
-
-```
-arXiv: https://arxiv.org/search/?query={term}
-GitHub: https://github.com/search?q={term}
-Google Scholar: https://scholar.google.com/scholar?q={term}
-Semantic Scholar: https://www.semanticscholar.org/search?q={term}
-```
-
-### Common API Endpoints
-
-```
-GitHub API: https://api.github.com/repos/{owner}/{repo}
-arXiv API: http://export.arxiv.org/api/query?search_query={term}
-```
-
-### Key Commands
-
-```
-# Get page content
-fetch_url(url="https://example.com")
-
-# Search within page
-search_text(url="https://example.com", query="keyword")
-
-# Get API data
-fetch_json(url="https://api.example.com/data")
-
-# Get raw HTML
-fetch_url_raw(url="https://example.com")
-```
-
----
-
-*For PDF processing after download, use the pdf skill.*
-*For data analysis of extracted information, use the xlsx skill.*
+- **2024-02-27**: 更新 MCP 路径至 `mcps/mcp-fetch/` 目录结构

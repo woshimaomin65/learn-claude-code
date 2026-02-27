@@ -33,7 +33,7 @@ npm run build
   "mcpServers": {
     "fetch": {
       "command": "node",
-      "args": ["/Users/maomin/programs/vscode/learn-claude-code/agents/mcp-fetch/dist/index.js"],
+      "args": ["/Users/maomin/programs/vscode/learn-claude-code/agents/mcps/mcp-fetch/dist/index.js"],
       "env": {}
     }
   }

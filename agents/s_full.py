@@ -164,6 +164,9 @@ class AgentLogger:
         self.log_file = generate_log_filename(agent_name)
         self.call_count = 0
         self._lock = threading.Lock()
+        # Track execution trace for detailed reports
+        self.execution_trace = []
+        self.current_plan = []
     
     def _trim_log_if_needed(self, f):
         """
@@ -207,6 +210,36 @@ class AgentLogger:
         """
         self.call_count += 1
         
+        # Extract plan/content from response
+        plan_content = ""
+        tool_calls = []
+        for block in response.content:
+            if block.type == "text":
+                plan_content = block.text
+            elif block.type == "tool_use":
+                tool_calls.append({
+                    "name": block.name,
+                    "arguments": block.input,
+                    "id": block.id,
+                })
+        
+        # Add to execution trace
+        if plan_content:
+            self.current_plan.append({
+                "call_id": self.call_count,
+                "plan": plan_content[:500] + "..." if len(plan_content) > 500 else plan_content,
+                "timestamp": datetime.now().isoformat(),
+            })
+        
+        for tool_call in tool_calls:
+            self.execution_trace.append({
+                "type": "tool_call",
+                "call_id": self.call_count,
+                "name": tool_call["name"],
+                "arguments": tool_call["arguments"],
+                "timestamp": datetime.now().isoformat(),
+            })
+        
         log_entry = {
             "call_id": self.call_count,
             "timestamp": datetime.now().isoformat(),
@@ -219,6 +252,8 @@ class AgentLogger:
                 "stop_reason": getattr(response, "stop_reason", "unknown"),
                 "content_blocks": parse_response_content(response.content),
                 "model": getattr(response, "model", ""),
+                "plan": plan_content[:500] + "..." if len(plan_content) > 500 else plan_content,
+                "tool_calls": tool_calls,
             },
         }
         
@@ -238,10 +273,88 @@ class AgentLogger:
             "tool_name": tool_name,
             "result": result,
         }
+        
+        # Add to execution trace
+        self.execution_trace.append({
+            "type": "tool_result",
+            "name": tool_name,
+            "result_preview": result[:200] + "..." if len(result) > 200 else result,
+            "timestamp": datetime.now().isoformat(),
+        })
+        
         with self._lock:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
                 self._trim_log_if_needed(f)
+    
+    def log_skill_load(self, skill_name: str):
+        """Log a skill load event."""
+        entry = {
+            "type": "skill_load",
+            "timestamp": datetime.now().isoformat(),
+            "skill_name": skill_name,
+        }
+        
+        # Add to execution trace
+        self.execution_trace.append({
+            "type": "skill_load",
+            "name": skill_name,
+            "timestamp": datetime.now().isoformat(),
+        })
+        
+        with self._lock:
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                self._trim_log_if_needed(f)
+    
+    def get_execution_trace_markdown(self, query: str) -> str:
+        """Generate a markdown report of the execution trace."""
+        md = []
+        md.append(f"# Agent Execution Report\n")
+        md.append(f"**Query**: {query}\n")
+        md.append(f"**Timestamp**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        md.append(f"**Agent**: {self.agent_name}\n")
+        md.append(f"**Total LLM Calls**: {self.call_count}\n")
+        md.append(f"**Total Actions**: {len(self.execution_trace)}\n")
+        md.append("")
+        
+        # Group by plan/LLM call
+        md.append("## Execution Plan & Actions\n")
+        
+        current_plan = None
+        action_num = 0
+        
+        for i, trace_item in enumerate(self.execution_trace, 1):
+            if trace_item["type"] == "tool_call":
+                action_num += 1
+                md.append(f"### Step {action_num}: Tool Call - `{trace_item['name']}`\n")
+                md.append(f"**Timestamp**: {trace_item['timestamp']}\n")
+                if trace_item.get("arguments"):
+                    md.append(f"**Arguments**:\n```json\n{json.dumps(trace_item['arguments'], indent=2, ensure_ascii=False)}\n```\n")
+            elif trace_item["type"] == "tool_result":
+                md.append(f"**Result**: `{trace_item['result_preview']}`\n")
+                md.append("")
+            elif trace_item["type"] == "skill_load":
+                action_num += 1
+                md.append(f"### Step {action_num}: Skill Loaded - `{trace_item['name']}`\n")
+                md.append(f"**Timestamp**: {trace_item['timestamp']}\n")
+                md.append("")
+        
+        # Add plan summaries
+        if self.current_plan:
+            md.append("\n## Plan Summaries\n")
+            for idx, plan_item in enumerate(self.current_plan, 1):
+                md.append(f"### LLM Call #{plan_item['call_id']}\n")
+                md.append(f"**Timestamp**: {plan_item['timestamp']}\n")
+                md.append(f"**Plan/Thought**:\n{plan_item['plan']}\n")
+                md.append("")
+        
+        return "\n".join(md)
+    
+    def reset_trace(self):
+        """Reset the execution trace for a new query."""
+        self.execution_trace = []
+        self.current_plan = []
 
 WORKDIR = Path.cwd()
 LOG_DIR = setup_logging()
@@ -1004,24 +1117,37 @@ def extract_text_from_content(content) -> str:
     return str(content)
 
 
-def save_query_result(query: str, result: str) -> str:
-    """Save query and result to markdown file in OUTPUT_DIR."""
+def save_query_result(query: str, result: str, logger: AgentLogger = None) -> str:
+    """
+    Save the query result to a markdown file in the output directory.
+    
+    Args:
+        query: The user's query
+        result: The result from the agent
+        logger: Optional logger instance to include execution trace
+    """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename_part = sanitize_filename(query)
     filename = f"{timestamp}_{filename_part}.md"
     filepath = OUTPUT_DIR / filename
     
-    markdown_content = f"""# Query Result
-
-## Query
-{query}
-
-## Timestamp
-{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-
-## Result
-{result}
-"""
+    # Build markdown content
+    md_parts = []
+    
+    # Header
+    md_parts.append("# Query Result\n")
+    md_parts.append(f"**Query**: {query}\n")
+    md_parts.append(f"**Timestamp**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    # Add execution trace if logger is provided
+    if logger:
+        md_parts.append(logger.get_execution_trace_markdown(query))
+        md_parts.append("\n---\n")
+    
+    # Result
+    md_parts.append(f"\n## Final Result\n\n{result}\n")
+    
+    markdown_content = "\n".join(md_parts)
     
     try:
         filepath.write_text(markdown_content, encoding='utf-8')
@@ -1121,6 +1247,8 @@ def agent_loop(messages: list, agent_name: str = "main"):
     """
     rounds_without_todo = 0
     logger = AgentLogger(agent_name)
+    # Reset execution trace for new query
+    logger.reset_trace()
     
     while True:
         # s06: compression pipeline
@@ -1175,6 +1303,10 @@ def agent_loop(messages: list, agent_name: str = "main"):
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)})
                 # Log tool result
                 logger.log_tool_result(block.name, str(output))
+                # Log skill load if applicable
+                if block.name == "load_skill":
+                    skill_name = block.input.get("name", "unknown")
+                    logger.log_skill_load(skill_name)
                 if block.name == "TodoWrite":
                     used_todo = True
         # s03: nag reminder (only when todo workflow is active)
@@ -1230,6 +1362,6 @@ if __name__ == "__main__":
                 result = extract_text_from_content(msg.get("content", ""))
                 break
         if result:
-            save_path = save_query_result(query, result)
+            save_path = save_query_result(query, result, logger)
             print(f"\033[90m{save_path}\033[0m", flush=True)
         print()

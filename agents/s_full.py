@@ -72,7 +72,7 @@ VALID_MSG_TYPES = {"message", "broadcast", "shutdown_request",
 
 
 def js(data):
-    print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
+    print(json.dumps(data, indent=2, ensure_ascii=False, default=str), flush=True)
 # === SECTION: base_tools ===
 def safe_path(p: str) -> Path:
     path = (WORKDIR / p).resolve()
@@ -526,10 +526,10 @@ class TeammateManager:
                     self._set_status(name, "shutdown")
                     return
                 # Print model output for debugging
-                print(f"\n{'='*50}")
-                print(f"[{name}] 模型输出:")
+                print(f"\n{'='*50}", flush=True)
+                print(f"[{name}] 模型输出:", flush=True)
                 js(response.content)
-                print(f"{'='*50}\n")
+                print(f"{'='*50}\n", flush=True)
                 messages.append({"role": "assistant", "content": response.content})
                 if response.stop_reason != "tool_use":
                     break
@@ -550,7 +550,7 @@ class TeammateManager:
                                         "write_file": lambda **kw: run_write(kw["path"], kw["content"]),
                                         "edit_file": lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"])}
                             output = dispatch.get(block.name, lambda **kw: "Unknown")(**block.input)
-                        print(f"  [{name}] {block.name}: {str(output)[:120]}")
+                        print(f"  [{name}] {block.name}: {str(output)[:120]}", flush=True)
                         results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)})
                 messages.append({"role": "user", "content": results})
                 if idle_requested:
@@ -799,7 +799,7 @@ def agent_loop(messages: list):
         # s06: compression pipeline
         microcompact(messages)
         if estimate_tokens(messages) > TOKEN_THRESHOLD:
-            print("[auto-compact triggered]")
+            print("[auto-compact triggered]", flush=True)
             messages[:] = auto_compact(messages)
         # s08: drain background notifications
         notifs = BG.drain()
@@ -818,9 +818,9 @@ def agent_loop(messages: list):
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
-        print('\n'*2)
-        print('-'*40)
-        print('模型的输出:')
+        print('\n'*2, flush=True)
+        print('-'*40, flush=True)
+        print('模型的输出:', flush=True)
         js(response.content)
         time.sleep(2)
         messages.append({"role": "assistant", "content": response.content})
@@ -839,7 +839,7 @@ def agent_loop(messages: list):
                     output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                 except Exception as e:
                     output = f"Error: {e}"
-                print(f"> {block.name}: {str(output)[:200]}")
+                print(f"> {block.name}: {str(output)[:200]}", flush=True)
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)})
                 if block.name == "TodoWrite":
                     used_todo = True
@@ -850,7 +850,7 @@ def agent_loop(messages: list):
         messages.append({"role": "user", "content": results})
         # s06: manual compress
         if manual_compress:
-            print("[manual compact]")
+            print("[manual compact]", flush=True)
             messages[:] = auto_compact(messages)
 
 
@@ -874,17 +874,17 @@ if __name__ == "__main__":
             break
         if query.strip() == "/compact":
             if history:
-                print("[manual compact via /compact]")
+                print("[manual compact via /compact]", flush=True)
                 history[:] = auto_compact(history)
             continue
         if query.strip() == "/tasks":
-            print(TASK_MGR.list_all())
+            print(TASK_MGR.list_all(), flush=True)
             continue
         if query.strip() == "/team":
-            print(TEAM.list_all())
+            print(TEAM.list_all(), flush=True)
             continue
         if query.strip() == "/inbox":
-            print(json.dumps(BUS.read_inbox("lead"), indent=2))
+            print(json.dumps(BUS.read_inbox("lead"), indent=2), flush=True)
             continue
         history.append({"role": "user", "content": query})
         agent_loop(history)
@@ -897,5 +897,5 @@ if __name__ == "__main__":
                 break
         if result:
             save_path = save_query_result(query, result)
-            print(f"\033[90m{save_path}\033[0m")
+            print(f"\033[90m{save_path}\033[0m", flush=True)
         print()

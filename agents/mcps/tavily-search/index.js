@@ -18,6 +18,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import axios from "axios";
+import dotenv from "dotenv";
+
+// Load environment variables
+dotenv.config();
 
 // ============================================
 // 配置管理
@@ -116,7 +120,12 @@ const TavilyAPI = {
       include_images: options.includeImages ?? false,
     };
 
-    log('info', '执行搜索', { query, searchDepth: params.search_depth, maxResults: params.max_results });
+    // Add days parameter if specified
+    if (options.days) {
+      params.days = options.days;
+    }
+
+    log('info', '执行搜索', { query, searchDepth: params.search_depth, maxResults: params.max_results, days: params.days });
 
     const data = await requestWithRetry(
       `${CONFIG.baseUrl}/search`,
@@ -286,14 +295,7 @@ async function createServer() {
     },
     async ({ query, maxResults, days }) => {
       try {
-        let searchQuery = query;
-        if (days) {
-          const date = new Date();
-          date.setDate(date.getDate() - days);
-          searchQuery = `${query} after:${date.toISOString().split('T')[0]}`;
-        }
-
-        const results = await TavilyAPI.getNews(searchQuery, { maxResults });
+        const results = await TavilyAPI.getNews(query, { maxResults, days });
         const formatted = ResultFormatter.formatResults(results);
         
         let summary = `📰 新闻搜索结果：${formatted.results.length} 条\n`;

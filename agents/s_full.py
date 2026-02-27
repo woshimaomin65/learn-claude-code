@@ -525,6 +525,11 @@ class TeammateManager:
                 except Exception:
                     self._set_status(name, "shutdown")
                     return
+                # Print model output for debugging
+                print(f"\n{'='*50}")
+                print(f"[{name}] 模型输出:")
+                js(response.content)
+                print(f"{'='*50}\n")
                 messages.append({"role": "assistant", "content": response.content})
                 if response.stop_reason != "tool_use":
                     break
@@ -669,6 +674,21 @@ def sanitize_filename(query: str, max_len: int = 50) -> str:
         sanitized = sanitized[:max_len]
     return sanitized
 
+def extract_text_from_content(content) -> str:
+    """Extract plain text from content blocks."""
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if hasattr(block, 'type') and block.type == "text":
+                texts.append(block.text if hasattr(block, 'text') else str(block))
+            elif isinstance(block, dict) and block.get("type") == "text":
+                texts.append(block.get("text", ""))
+            else:
+                texts.append(str(block))
+        return "\n".join(texts)
+    return str(content)
+
+
 def save_query_result(query: str, result: str) -> str:
     """Save query and result to markdown file in OUTPUT_DIR."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -802,9 +822,10 @@ def agent_loop(messages: list):
         print('-'*40)
         print('模型的输出:')
         js(response.content)
+        time.sleep(2)
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
-            return
+            return  # Final response, exit loop
         # Tool execution
         results = []
         used_todo = False
@@ -872,7 +893,7 @@ if __name__ == "__main__":
         result = ""
         for msg in reversed(history):
             if msg.get("role") == "assistant":
-                result = msg.get("content", "")
+                result = extract_text_from_content(msg.get("content", ""))
                 break
         if result:
             save_path = save_query_result(query, result)

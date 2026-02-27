@@ -8,29 +8,29 @@ Session s12 (task-aware worktree isolation) is taught separately.
 NOT a teaching session -- this is the "put it all together" reference.
 
     +------------------------------------------------------------------+
-    |                        FULL AGENT                                 |
-    |                                                                   |
-    |  System prompt (s05 skills, task-first + optional todo nag)      |
-    |                                                                   |
-    |  Before each LLM call:                                            |
-    |  +--------------------+  +------------------+  +--------------+  |
-    |  | Microcompact (s06) |  | Drain bg (s08)   |  | Check inbox  |  |
-    |  | Auto-compact (s06) |  | notifications    |  | (s09)        |  |
-    |  +--------------------+  +------------------+  +--------------+  |
-    |                                                                   |
-    |  Tool dispatch (s02 pattern):                                     |
-    |  +--------+----------+----------+---------+-----------+          |
-    |  | bash   | read     | write    | edit    | TodoWrite |          |
-    |  | task   | load_sk  | compress | bg_run  | bg_check  |          |
-    |  | t_crt  | t_get    | t_upd    | t_list  | spawn_tm  |          |
-    |  | list_tm| send_msg | rd_inbox | bcast   | shutdown  |          |
-    |  | plan   | idle     | claim    |         |           |          |
-    |  +--------+----------+----------+---------+-----------+          |
-    |                                                                   |
-    |  Subagent (s04):  spawn -> work -> return summary                 |
-    |  Teammate (s09):  spawn -> work -> idle -> auto-claim (s11)      |
-    |  Shutdown (s10):  request_id handshake                            |
-    |  Plan gate (s10): submit -> approve/reject                        |
+   |                       FULL AGENT                                 |
+   |                                                                  |
+   | System prompt (s05 skills, task-first + optional todo nag)      |
+   |                                                                  |
+   | Before each LLM call:                                            |
+   | +--------------------+  +------------------+  +--------------+  |
+   ||Microcompact (s06)||Drain bg (s08)  ||Check inbox | |
+   ||Auto-compact (s06)||notifications   ||(s09)       | |
+   | +--------------------+  +------------------+  +--------------+  |
+   |                                                                  |
+   | Tool dispatch (s02 pattern):                                     |
+   | +--------+----------+----------+---------+-----------+          |
+   ||bash  |read    |write   |edit   |TodoWrite|         |
+   ||task  |load_sk |compress|bg_run |bg_check |         |
+   ||t_crt |t_get   |t_upd   |t_list |spawn_tm |         |
+   ||list_tm| send_msg|rd_inbox|bcast  |shutdown |         |
+   ||plan  |idle    |claim   |       |         |         |
+   | +--------+----------+----------+---------+-----------+          |
+   |                                                                  |
+   | Subagent (s04):  spawn -> work -> return summary                 |
+   | Teammate (s09):  spawn -> work -> idle -> auto-claim (s11)      |
+   | Shutdown (s10):  request_id handshake                            |
+   | Plan gate (s10): submit -> approve/reject                        |
     +------------------------------------------------------------------+
 
     REPL commands: /compact /tasks /team /inbox
@@ -46,7 +46,7 @@ import time
 import uuid
 from pathlib import Path
 from queue import Queue
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Union
 
 from llm_config import client, MODEL
@@ -68,7 +68,7 @@ class TavilyConfig:
     @classmethod
     def get_api_key(cls):
         """Get Tavily API key from environment."""
-        return os.getenv("TAVILY_API_KEY", "")
+        return os.getenv("TAVILY_API_KEY", "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")
 
 
 class TavilyClient:
@@ -535,12 +535,94 @@ def run_bash(command: str) -> str:
     except subprocess.TimeoutExpired:
         return "Error: Timeout (120s)"
 
+def parse_relative_time(query: str) -> tuple[str, int|None]:
+    """
+    Parse relative time expressions in query and convert to specific dates.
+    
+    Args:
+        query: The search query that may contain relative time expressions
+        
+    Returns:
+        tuple: (modified_query, days_limit)
+            - modified_query: Query with relative time replaced by specific dates
+            - days_limit: Number of days for news search (None if not applicable)
+    
+    Supported expressions:
+        - 今天/今天/今日/today -> current date
+        - 昨天/昨日/yesterday -> 1 day ago
+        - 前天 -> 2 days ago
+        - 最近/近期/recent/recently -> 7 days
+        - 最近一周/近一周/过去一周/last week -> 7 days
+        - 最近一个月/近一个月/过去一个月/last month -> 30 days
+        - 最近三天/近三天/过去三天 -> 3 days
+        - 本周/这周/this week -> days since Monday
+        - 本月/这个月/this month -> days since 1st of month
+    """
+    today = datetime.now()
+    days_limit = None
+    modified_query = query
+    date_str = today.strftime("%Y 年 %m 月 %d 日")
+    
+    # Patterns for relative time expressions (Chinese and English)
+    # NOTE: No spaces around|in regex patterns!
+    time_patterns = [
+        # Today - highest priority, most specific
+        (r'(今天|今日|今天|today|current date)', 1, date_str),
+        # Yesterday
+        (r'(昨天|昨日|yesterday)', 2, (today - timedelta(days=1)).strftime("%Y 年 %m 月 %d 日")),
+        # Day before yesterday
+        (r'(前天|the day before yesterday)', 3, (today - timedelta(days=2)).strftime("%Y 年 %m 月 %d 日")),
+        # Last 3 days
+        (r'(最近三天|近三天|过去三天|last 3 days)', 4, None),
+        # Last week / recent 7 days
+        (r'(最近一周|近一周|过去一周|最近 7 天|近 7 天|last week|past week|recent week)', 7, None),
+        # Last month / recent 30 days
+        (r'(最近一个月|近一个月|过去一个月|最近 30 天|近 30 天|last month|past month|recent month)', 30, None),
+        # Recent / lately (default 7 days)
+        (r'(最近|近期|近来|近日|recent|recently|lately)', 7, None),
+        # This week
+        (r'(本周|这周|本星期|这个星期|this week)', None, None),
+        # This month
+        (r'(本月|这个月|当月|this month)', None, None),
+    ]
+    
+    for pattern, days, specific_date in time_patterns:
+        match = re.search(pattern, query, re.IGNORECASE)
+        if match:
+            days_limit = days
+            if specific_date:
+                # Replace the relative time with specific date
+                modified_query = re.sub(pattern, f"{specific_date}", query, flags=re.IGNORECASE)
+            else:
+                # For week/month/recent, add date context to query
+                if 'week' in pattern or '周' in pattern or '星期' in pattern:
+                    # Calculate Monday of this week
+                    monday = today - timedelta(days=today.weekday())
+                    date_context = f"{monday.strftime('%Y 年 %m 月 %d 日')}至今"
+                    modified_query = re.sub(pattern, f"{date_context}", query, flags=re.IGNORECASE)
+                elif 'month' in pattern or '月' in pattern:
+                    # First day of this month
+                    first_day = today.replace(day=1)
+                    date_context = f"{first_day.strftime('%Y 年 %m 月 %d 日')}至今"
+                    modified_query = re.sub(pattern, f"{date_context}", query, flags=re.IGNORECASE)
+                elif days is not None:
+                    # For "recent" type queries, add date range context
+                    start_date = today - timedelta(days=days)
+                    date_context = f"{start_date.strftime('%Y 年 %m 月 %d 日')}至今"
+                    modified_query = f"{date_context}{query}"
+            break  # Use the first (highest priority) match
+    
+    return modified_query, days_limit
+
+
 def run_tavily_search(query: str, search_depth: str = "basic", max_results: int = 5, include_answer: bool = False) -> str:
     """Run Tavily general web search."""
     if not query:
         return "Error: query is required"
     try:
-        result = tavily_client.search(query, search_depth, max_results, include_answer)
+        # Parse relative time expressions and add date context to query
+        processed_query, _ = parse_relative_time(query)
+        result = tavily_client.search(processed_query, search_depth, max_results, include_answer)
         return json_module.dumps(result, indent=2, ensure_ascii=False)
     except Exception as e:
         return f"Error: {str(e)}"
@@ -551,7 +633,12 @@ def run_tavily_news(query: str, max_results: int = 5, days: int = 7) -> str:
     if not query:
         return "Error: query is required"
     try:
-        result = tavily_client.search_news(query, max_results, days)
+        # Parse relative time expressions to automatically set days parameter
+        processed_query, parsed_days = parse_relative_time(query)
+        # Use parsed days if available, otherwise use default
+        if parsed_days is not None:
+            days = parsed_days
+        result = tavily_client.search_news(processed_query, max_results, days)
         return json_module.dumps(result, indent=2, ensure_ascii=False)
     except Exception as e:
         return f"Error: {str(e)}"
@@ -1231,11 +1318,11 @@ Need web information?
 ```
 
 **Performance Comparison:**
-| Tool | Speed | Resource | Use Case |
+| Tool|Speed|Resource|Use Case |
 |------|-------|----------|----------|
-| tavily-search | ⚡ Fast (1-3s) | 💚 Low | 90% search tasks |
-| mcp-fetch | ⚡ Fast (1-2s) | 💚 Low | Known URLs, APIs |
-| browser-mcp | 🐌 Slow (5-15s) | 🔴 High | Screenshots, interaction |
+| tavily-search|⚡ Fast (1-3s)|💚 Low|90% search tasks |
+| mcp-fetch|⚡ Fast (1-2s)|💚 Low|Known URLs, APIs |
+| browser-mcp|🐌 Slow (5-15s)|🔴 High|Screenshots, interaction |
 
 **Visual/Web:**
 - Web UI, dashboards → frontend-design

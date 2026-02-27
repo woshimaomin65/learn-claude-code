@@ -175,6 +175,21 @@ data/{task-name}-{date}/
 - **Research report analysis**: Financial reports, industry analysis, market research from institutional websites
 - **Multi-hop web browsing**: Following citation chains, tracing information sources, comprehensive information gathering
 
+**⚠️ CRITICAL: Time Expression Sensitivity**
+When users use relative time expressions, the system **automatically converts them to specific dates**:
+- **今天/今日/today** → Current date (e.g., "2025 年 01 月 27 日")
+- **昨天/昨日/yesterday** → 1 day ago
+- **最近/近期/recent** → Last 7 days (default)
+- **最近一周/last week** → Last 7 days
+- **最近一个月/last month** → Last 30 days
+- **本周/this week** → Since Monday of this week
+- **本月/this month** → Since 1st of current month
+
+**Why this matters**: 
+- ❌ NEVER return outdated information when user asks about "today"
+- ✅ ALWAYS ensure search queries include specific dates for time-sensitive queries
+- Example: "今天的金价" → searches "2025 年 01 月 27 日的金价" (not just "今天的金价")
+
 **Tool Selection Decision Tree**:
 ```
 Need web information?
@@ -202,6 +217,7 @@ Need web information?
 
 **Best Practices**:
 - **DEFAULT to tavily-search** for 90% of search tasks (faster, AI-optimized, structured results)
+- **ALWAYS recognize relative time expressions** and understand they will be auto-converted to specific dates
 - Use mcp-fetch ONLY for known URL content fetching or API calls (being deprecated)
 - Use browser-mcp ONLY for screenshots, interaction, or JavaScript-rendered pages (resource-intensive)
 - Combine with other skills for document creation from research

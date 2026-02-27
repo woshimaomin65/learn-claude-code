@@ -607,10 +607,10 @@ def parse_relative_time(query: str) -> tuple[str, int|None]:
                     date_context = f"{first_day.strftime('%Y 年 %m 月 %d 日')}至今"
                     modified_query = re.sub(pattern, f"{date_context}", query, flags=re.IGNORECASE)
                 elif days is not None:
-                    # For "recent" type queries, add date range context
+                    # For "recent" type queries, append date range context to query with space
                     start_date = today - timedelta(days=days)
                     date_context = f"{start_date.strftime('%Y 年 %m 月 %d 日')}至今"
-                    modified_query = f"{date_context}{query}"
+                    modified_query = f"{query} {date_context}"
             break  # Use the first (highest priority) match
     
     return modified_query, days_limit
@@ -681,8 +681,18 @@ def rewrite_query(query: str) -> list[str]:
     for cn_term, en_term in english_equivalents.items():
         if cn_term in processed_query and len(rewritten) < 3:
             # Create a variant by adding English after Chinese with space
-            variant = processed_query.replace(cn_term, f"{cn_term} {en_term}", 1)
-            if variant not in rewritten:
+            # Use word boundary-aware replacement
+            import re as regex_module
+            # Add space before and after the English term if needed
+            variant = regex_module.sub(
+                rf'({regex_module.escape(cn_term)})(?!\s*{regex_module.escape(en_term)})',
+                rf'\1 {en_term} ',
+                processed_query,
+                count=1
+            )
+            # Clean up extra spaces
+            variant = ' '.join(variant.split())
+            if variant != processed_query and variant not in rewritten:
                 rewritten.append(variant)
             break
     

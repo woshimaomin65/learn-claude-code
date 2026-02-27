@@ -218,6 +218,11 @@ Need web information?
 **Best Practices**:
 - **DEFAULT to tavily-search** for 90% of search tasks (faster, AI-optimized, structured results)
 - **ALWAYS recognize relative time expressions** and understand they will be auto-converted to specific dates
+- **Query rewriting is automatic** - user queries are rewritten into up to 3 variations for better coverage:
+  - Original query is always included
+  - Time/context specifiers added (e.g., "最新", "2025 年")
+  - English terms added for international topics (e.g., "AI" → "AI artificial intelligence")
+  - Short queries expanded (e.g., "油价" → "原油价格最新")
 - Use mcp-fetch ONLY for known URL content fetching or API calls (being deprecated)
 - Use browser-mcp ONLY for screenshots, interaction, or JavaScript-rendered pages (resource-intensive)
 - Combine with other skills for document creation from research

@@ -1,2 +1,10 @@
 data
 .agent_logs
+
+# 模型文件
+*.bin
+
+# 数据库文件
+*.sqlite3
+*.sqlite
+*.db

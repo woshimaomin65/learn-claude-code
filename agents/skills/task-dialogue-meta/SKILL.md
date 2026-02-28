@@ -1,10 +1,17 @@
 ---
 name: task-dialogue-meta
-description: "Use this skill when you need to build dynamic task-oriented dialogue systems that can adapt to any scenario. This meta-skill enables zero-shot TOD (Task-Oriented Dialogue) by inferring schemas from user descriptions or data structures, then dynamically generating dialogue flows. Perfect for building conversational agents that need to handle multiple scenarios without hard-coded logic. Requires task-dialogue-mcp server for schema inspection and validation."
+description: "Use this skill when you need to build dynamic task-oriented dialogue systems that can adapt to any scenario. This meta-skill enables zero-shot TOD (Task-Oriented Dialogue) by inferring schemas from user descriptions or data structures, then dynamically generating dialogue flows. Perfect for building conversational agents that need to handle multiple scenarios without hard-coded logic. **v2.0**: Now includes full conversation state management, user confirmation, interruption handling, and dialogue history tracking. Requires task-dialogue-mcp server."
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
-# Task Dialogue Meta-Skill (Meta-TOD Engine)
+# Task Dialogue Meta-Skill v2.0 (Meta-TOD Engine)
+
+**Version 2.0 Enhancements:**
+- ✅ **Dialogue State Management**: Track conversation progress with `dialogue_state_create/update/get`
+- ✅ **User Confirmation**: Built-in confirmation workflow with `user_confirm/response`
+- ✅ **Interruption Handling**: Detect and recover from user interruptions with `handle_interruption`
+- ✅ **Dialogue History**: Full conversation tracking with `dialogue_history_add/get`
+- ✅ **Action Recommendations**: AI-powered next step suggestions with `next_action_recommend`
 
 This skill provides a systematic approach to building **dynamic task-oriented dialogue systems** that can adapt to any scenario without hard-coded business logic. Instead of writing fixed dialogue flows, the AI learns to **infer schemas dynamically** and generate conversation strategies on-the-fly.
 
@@ -158,34 +165,36 @@ Before final execution, validate collected data against schema.
 
 ---
 
-## MCP Toolset: Schema-Aware Tools
+## MCP Toolset: Schema-Aware Tools (v2.0 Enhanced)
 
-### 1. `inspect_datasource(uri)`
+### Schema Analysis Tools
 
-**Purpose:** Read database metadata (DML/DDL)
+### 1. `inspect_datasource(uri)` / `get_data_schema(source)`
+
+**Purpose:** Read database metadata (DML/DDL) and extract schema
 
 **Parameters:**
-- `uri` (required): Data source URI (file path, DB connection, etc.)
+- `uri`/`source` (required): Data source URI (file path, SQL DDL string, JSON schema)
 - `include_relationships` (optional): Include foreign key relationships
 
 **Returns:**
 ```json
 {
-  "table": "equipment_repair",
+  "entity": "equipment_repair",
   "fields": [
-    {"name": "serial_number", "type": "string", "required": true, "unique": true},
-    {"name": "issue_description", "type": "text", "required": true},
-    {"name": "urgency", "type": "enum", "values": ["low", "medium", "high", "critical"]},
-    {"name": "reported_by", "type": "string", "required": true},
-    {"name": "status", "type": "string", "default": "Open"}
+    {"name": "serial_number", "type": "TEXT", "required": true, "unique": true},
+    {"name": "issue_description", "type": "TEXT", "required": true},
+    {"name": "urgency", "type": "TEXT", "enum": ["low", "medium", "high", "critical"]},
+    {"name": "reported_by", "type": "TEXT", "required": true},
+    {"name": "status", "type": "TEXT", "default": "Open"}
   ],
-  "relationships": [
-    {"field": "reported_by", "references": "users.employee_id"}
-  ]
+  "relationships": []
 }
 ```
 
 ---
+
+### Data Validation Tools
 
 ### 2. `validate_against_schema(data_json, schema)`
 
@@ -193,7 +202,7 @@ Before final execution, validate collected data against schema.
 
 **Parameters:**
 - `data_json` (required): Collected slot values
-- `schema` (required): Target schema definition
+- `schema` (required): Target schema definition with entity and fields
 
 **Returns:**
 ```json
@@ -207,17 +216,264 @@ Before final execution, validate collected data against schema.
 
 ---
 
-### 3. `propose_human_intervention(issue_type, current_data)`
+### 3. `check_duplicate_records(current_data, existing_records, threshold)`
 
-**Purpose:** Auto-trigger HITL for sensitive fields or conflicts
+**Purpose:** Detect potential duplicate entries before submission
 
 **Parameters:**
-- `issue_type` (required): Type of intervention needed
+- `current_data` (required): Data to check for duplicates
+- `existing_records` (required): Existing records to compare against
+- `threshold` (optional): Similarity threshold (0-1), default 0.8
+
+**Returns:**
+```json
+{
+  "has_duplicates": true,
+  "duplicate_count": 1,
+  "duplicates": [
+    {"record": {...}, "similarity": 0.92, "matching_fields": ["serial_number", "issue_description"]}
+  ],
+  "threshold_used": 0.8
+}
+```
+
+---
+
+### Conversation State Management (NEW v2.0)
+
+### 4. `dialogue_state_create(entity, schema, initial_slots, metadata)`
+
+**Purpose:** Initialize a new dialogue session with slot classification and state tracking
+
+**Parameters:**
+- `entity` (required): Entity/domain name (e.g., "equipment_repair", "rental_listing")
+- `schema` (optional): Schema definition for automatic slot classification
+- `initial_slots` (optional): Pre-filled slot values
+- `metadata` (optional): Additional session metadata
+
+**Returns:**
+```json
+{
+  "session_id": "dialogue-1706345678-abc123",
+  "state": {
+    "entity": "equipment_repair",
+    "status": "active",
+    "collected_slots": {},
+    "pending_slots": ["serial_number", "issue_description", "urgency", "reported_by"],
+    "completed_slots": [],
+    "current_slot": "serial_number"
+  },
+  "slot_classification": {
+    "hard_slots": ["serial_number", "issue_description", "urgency", "reported_by"],
+    "soft_slots": [],
+    "hidden_slots": ["status"]
+  }
+}
+```
+
+**Usage Pattern:**
+```javascript
+// Start new dialogue session
+const session = await mcp.dialogue_state_create({
+  entity: "equipment_repair",
+  schema: extractedSchema,
+  initial_slots: { reported_by: currentUser }
+});
+
+// Use session_id for all subsequent dialogue operations
+```
+
+---
+
+### 5. `dialogue_state_update(session_id, slot_name, slot_value, action)`
+
+**Purpose:** Update dialogue session with collected slot value, track progress
+
+**Parameters:**
+- `session_id` (required): Session ID from `dialogue_state_create`
+- `slot_name` (required): Name of the slot being updated
+- `slot_value` (required): Value to store
+- `action` (optional): "collect" | "modify" | "clear" (default: "collect")
+
+**Returns:**
+```json
+{
+  "session_id": "dialogue-1706345678-abc123",
+  "updated": true,
+  "slot": "serial_number",
+  "value": "SN-2024-001",
+  "action": "collect",
+  "state": {
+    "status": "active",
+    "collected_slots": {"serial_number": "SN-2024-001"},
+    "completed_slots": ["serial_number"],
+    "pending_slots": ["issue_description", "urgency", "reported_by"],
+    "current_slot": "issue_description"
+  },
+  "is_complete": false
+}
+```
+
+---
+
+### 6. `dialogue_state_get(session_id)`
+
+**Purpose:** Retrieve current dialogue session state
+
+**Parameters:**
+- `session_id` (required): Session ID to retrieve
+
+**Returns:**
+```json
+{
+  "session_id": "dialogue-1706345678-abc123",
+  "entity": "equipment_repair",
+  "status": "active",
+  "collected_slots": {"serial_number": "SN-2024-001", "issue_description": "Won't start"},
+  "completed_slots": ["serial_number", "issue_description"],
+  "pending_slots": ["urgency", "reported_by"],
+  "current_slot": "urgency",
+  "interruption_count": 0,
+  "last_updated": "2025-01-27T10:30:00Z"
+}
+```
+
+---
+
+### User Interaction Tools (NEW v2.0)
+
+### 7. `user_confirm(session_id, message, data, timeout_seconds)`
+
+**Purpose:** Create confirmation request for user verification before submission
+
+**Parameters:**
+- `session_id` (required): Session ID
+- `message` (required): Confirmation message to display to user
+- `data` (required): Data object to be confirmed
+- `timeout_seconds` (optional): Confirmation timeout, default 300 seconds
+
+**Returns:**
+```json
+{
+  "request_id": "confirm-1706345678-xyz789",
+  "session_id": "dialogue-1706345678-abc123",
+  "status": "pending",
+  "message": "请确认以下报修信息是否正确...",
+  "data": {"serial_number": "SN-2024-001", "issue_description": "Won't start", ...},
+  "timeout_seconds": 300,
+  "expires_at": "2025-01-27T10:35:00Z",
+  "instructions": "Present this to user and call user_confirm_response with their answer"
+}
+```
+
+**Usage Pattern:**
+```javascript
+// Create confirmation request
+const confirm = await mcp.user_confirm({
+  session_id,
+  message: "请确认信息：序列号 SN-2024-001，问题：无法启动...",
+  data: collectedData
+});
+
+// Present to user and wait for response
+// User says "确认" or "是的"
+await mcp.user_confirm_response({
+  request_id: confirm.request_id,
+  response: "confirmed"
+});
+```
+
+---
+
+### 8. `user_confirm_response(request_id, response, feedback)`
+
+**Purpose:** Submit user's response to a confirmation request
+
+**Parameters:**
+- `request_id` (required): Confirmation request ID from `user_confirm`
+- `response` (required): "confirmed" | "rejected" | "timeout"
+- `feedback` (optional): User's feedback or reason for rejection
+
+**Returns:**
+```json
+{
+  "request_id": "confirm-1706345678-xyz789",
+  "response": "confirmed",
+  "feedback": null,
+  "session_status": "submitted"
+}
+```
+
+---
+
+### 9. `handle_interruption(session_id, user_message, action)`
+
+**Purpose:** Detect and handle user interruptions during dialogue flow
+
+**Parameters:**
+- `session_id` (required): Session ID
+- `user_message` (required): User's interruption message
+- `action` (optional): "analyze" | "recover" | "abort" | "pause" (default: "analyze")
+
+**Detected Interruption Types:**
+| Intent | Trigger Keywords | Recommended Action |
+|--------|-----------------|-------------------|
+| `pause` | 等一下，等等，暂停，稍等 | pause_and_resume |
+| `correction` | 不对，错了，不是，应该是 | answer_and_resume |
+| `topic_change` | 我想问，换个话题，回到 | recover_with_context |
+| `cancel` | 取消，不要了，不办了，算了 | abort |
+| `question` | 为什么，怎么，如何，什么意思 | answer_and_resume |
+
+**Returns:**
+```json
+{
+  "session_id": "dialogue-1706345678-abc123",
+  "user_message": "等一下，我先问个问题",
+  "is_interruption": true,
+  "detected_intent": "pause",
+  "recommended_action": "pause_and_resume",
+  "session_status": "interrupted",
+  "interruption_count": 1,
+  "recovery_message": "对话已暂停，准备好后请说'继续'"
+}
+```
+
+**Usage Pattern:**
+```javascript
+// User interrupts: "等一下，我想先问个问题"
+const interruption = await mcp.handle_interruption({
+  session_id,
+  user_message: "等一下，我想先问个问题",
+  action: "analyze"
+});
+
+// Handle based on intent
+if (interruption.detected_intent === "question") {
+  // Answer the question
+  await answerUserQuestion(userMessage);
+  // Then recover dialogue
+  await mcp.handle_interruption({ session_id, user_message: "继续", action: "recover" });
+}
+```
+
+---
+
+### HITL Tools
+
+### 10. `propose_human_intervention(issue_type, current_data, session_id, context)`
+
+**Purpose:** Trigger Human-in-the-Loop intervention for sensitive operations
+
+**Parameters:**
+- `issue_type` (required): Type of intervention
   - `duplicate_detection`: Similar record exists
-  - `sensitive_field`: Requires human approval
+  - `sensitive_field`: Requires human approval (auto-detected)
   - `validation_failure`: Schema validation failed
   - `user_request`: User explicitly requested human
+  - `schema_conflict`: Schema mismatch
+  - `interruption_recovery`: Complex interruption recovery needed
 - `current_data` (required): Current collected data
+- `session_id` (optional): Session ID for context
 - `context` (optional): Additional context for human reviewer
 
 **Returns:**
@@ -226,20 +482,96 @@ Before final execution, validate collected data against schema.
   "intervention_id": "HITL-2025-001",
   "status": "pending_review",
   "assigned_to": "human_agent_queue",
-  "estimated_wait": "5 minutes"
+  "issue_type": "sensitive_field",
+  "reason": "Sensitive field detected - requires human approval",
+  "estimated_wait": "5 minutes",
+  "current_data": {...},
+  "context": {...}
 }
 ```
 
 ---
 
-### 4. `get_data_schema(source)` (Alias for inspect_datasource)
+### Dialogue History Tools (NEW v2.0)
 
-**Purpose:** Analyze data structure for schema extraction
+### 11. `dialogue_history_add(session_id, role, content, intent, slots, action)`
+
+**Purpose:** Add a turn to dialogue history for context tracking
 
 **Parameters:**
-- `source` (required): Data source (Excel path, SQL DDL, JSON schema, or description)
+- `session_id` (required): Session ID
+- `role` (required): "user" | "assistant" | "system"
+- `content` (required): Message content
+- `intent` (optional): Detected intent
+- `slots` (optional): Slots mentioned in this turn
+- `action` (optional): Action taken
 
-**Returns:** Field list, comments, relationships, constraints
+**Returns:**
+```json
+{
+  "success": true,
+  "turn_id": "turn-1706345678-def456",
+  "timestamp": "2025-01-27T10:30:00Z"
+}
+```
+
+---
+
+### 12. `dialogue_history_get(session_id, limit)`
+
+**Purpose:** Retrieve dialogue history for context and analysis
+
+**Parameters:**
+- `session_id` (required): Session ID
+- `limit` (optional): Maximum turns to return, default 50
+
+**Returns:**
+```json
+{
+  "session_id": "dialogue-1706345678-abc123",
+  "turn_count": 8,
+  "history": [
+    {"turnId": "...", "role": "assistant", "content": "您好，请提供设备序列号...", "timestamp": "..."},
+    {"turnId": "...", "role": "user", "content": "SN-2024-001", "timestamp": "..."},
+    ...
+  ]
+}
+```
+
+---
+
+### 13. `next_action_recommend(session_id, schema)`
+
+**Purpose:** Get AI-powered recommendation for next dialogue action
+
+**Parameters:**
+- `session_id` (required): Session ID
+- `schema` (optional): Schema for slot requirement analysis
+
+**Returns:**
+```json
+{
+  "session_id": "dialogue-1706345678-abc123",
+  "current_status": "active",
+  "collected_count": 2,
+  "pending_count": 2,
+  "action": "ask_slot",
+  "next_slot": "urgency",
+  "reason": "Continue collecting required information",
+  "collected_slots": {"serial_number": "SN-2024-001", "issue_description": "Won't start"},
+  "pending_slots": ["urgency", "reported_by"]
+}
+```
+
+**Status-Based Recommendations:**
+| Status | Recommended Action | Reason |
+|--------|-------------------|--------|
+| `active` + pending slots | `ask_slot` | Continue collecting |
+| `active` + all collected | `confirm_and_submit` | Ready for confirmation |
+| `interrupted` | `recover_dialogue` | Resume after interruption |
+| `confirmed` | `submit_data` | Submit confirmed data |
+| `abandoned` | `restart_or_close` | User cancelled |
+| `submitted` | `complete` | Dialogue finished |
 
 ---
 

@@ -194,6 +194,94 @@
 }
 ```
 
+### 9. get_code_context - 获取代码上下文
+
+根据行号获取代码的完整上下文，包括所属类/函数、调用关系等。
+
+**参数：**
+- `filePath` (必需): 源代码文件路径
+- `lineNumber` (必需): 目标行号（1-based）
+- `includeCallers` (可选): 是否包含调用者信息，默认 `true`
+- `includeCallees` (可选): 是否包含被调用者信息，默认 `true`
+- `includeSegment` (可选): 是否包含代码段内容，默认 `true`
+
+**示例：**
+```json
+{
+  "name": "get_code_context",
+  "arguments": {
+    "filePath": "src/api/users.ts",
+    "lineNumber": 45,
+    "includeCallers": true,
+    "includeSegment": true
+  }
+}
+```
+
+### 10. find_callers - 查找函数调用者
+
+查找调用指定函数的所有位置。
+
+**参数：**
+- `filePath` (必需): 源代码文件路径
+- `functionName` (必需): 目标函数名称
+- `maxResults` (可选): 最大返回结果数，默认 50
+
+**示例：**
+```json
+{
+  "name": "find_callers",
+  "arguments": {
+    "filePath": "src/utils/helpers.ts",
+    "functionName": "formatDate",
+    "maxResults": 20
+  }
+}
+```
+
+### 11. extract_code_segment - 提取代码段
+
+根据函数名或类名提取完整的代码段。
+
+**参数：**
+- `filePath` (必需): 源代码文件路径
+- `elementName` (必需): 元素名称（函数名或类名）
+- `includeLineNumbers` (可选): 是否包含行号，默认 `true`
+
+**示例：**
+```json
+{
+  "name": "extract_code_segment",
+  "arguments": {
+    "filePath": "src/models/User.ts",
+    "elementName": "User",
+    "includeLineNumbers": true
+  }
+}
+```
+
+### 12. analyze_code_dependencies - 分析代码依赖
+
+分析代码的完整依赖关系，包括调用图和被调用图。
+
+**参数：**
+- `filePath` (必需): 源代码文件路径
+- `targetFunctions` (可选): 重点分析的函数列表
+- `includeInternal` (可选): 是否包含内部调用，默认 `true`
+- `includeExternal` (可选): 是否包含外部调用，默认 `false`
+
+**示例：**
+```json
+{
+  "name": "analyze_code_dependencies",
+  "arguments": {
+    "filePath": "src/services/payment.ts",
+    "targetFunctions": ["processPayment", "refund"],
+    "includeInternal": true
+  }
+}
+```
+
 ## 安装
 
 ```bash
@@ -243,6 +331,32 @@ npm run build
 
 ### 文档生成
 结合 AST 解析工具，自动生成 API 文档和代码结构说明。
+
+### 代码上下文定位（新增）
+使用 `get_code_context` 根据行号定位代码，获取：
+- 所属的类和函数
+- 完整的代码段
+- 调用该代码的位置
+- 该代码调用的其他函数
+
+### 调用关系分析（新增）
+使用 `find_callers` 查找函数的所有调用位置，用于：
+- 评估重构影响范围
+- 查找未使用的代码
+- 分析 API 使用情况
+
+### 代码段提取（新增）
+使用 `extract_code_segment` 精确提取函数或类的完整代码，用于：
+- 代码审查
+- 文档生成
+- 代码复用参考
+
+### 依赖图谱分析（新增）
+使用 `analyze_code_dependencies` 分析代码依赖关系，用于：
+- 架构分析
+- 性能优化（识别热点函数）
+- 代码解耦
+- 测试覆盖率分析
 
 ## 设计原则
 

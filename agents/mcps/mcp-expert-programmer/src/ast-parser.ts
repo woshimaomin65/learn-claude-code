@@ -650,3 +650,364 @@ export function parseCode(code: string, filePath?: string): ParseResult {
   // 默认尝试 TypeScript
   return parseJavaScript(code, true);
 }
+
+// ============================================================================
+// 代码上下文分析 - 增强功能
+// ============================================================================
+
+/**
+ * 代码上下文信息
+ */
+export interface CodeContext {
+  // 所属类（如果在类中）
+  enclosingClass: ClassInfo | null;
+  // 所属函数（如果在函数中）
+  enclosingFunction: CodeElement | null;
+  // 当前行所在的代码块类型
+  blockType: 'class' | 'function' | 'method' | 'module' | 'unknown';
+  // 嵌套深度
+  nestingDepth: number;
+  // 父级作用域链（可以是类或函数）
+  scopeChain: (CodeElement | ClassInfo)[];
+}
+
+/**
+ * 代码调用信息
+ */
+export interface CallInfo {
+  // 调用者名称
+  callerName: string;
+  // 调用者类型
+  callerType: 'function' | 'method' | 'module';
+  // 调用位置
+  line: number;
+  // 调用代码片段
+  codeSnippet: string;
+  // 所属文件（如果是跨文件调用）
+  filePath?: string;
+}
+
+/**
+ * 代码段信息
+ */
+export interface CodeSegment {
+  // 代码内容
+  content: string;
+  // 起始行
+  startLine: number;
+  // 结束行
+  endLine: number;
+  // 所属元素
+  element: CodeElement | ClassInfo;
+  // 代码类型
+  segmentType: 'function' | 'method' | 'class' | 'block';
+}
+
+/**
+ * 带调用关系的解析结果
+ */
+export interface EnhancedParseResult extends ParseResult {
+  // 函数调用关系图
+  callGraph: Map<string, CallInfo[]>;
+  // 导入的来源文件映射
+  importSources: Map<string, string>;
+}
+
+/**
+ * 根据行号查找代码上下文
+ * @param code 源代码
+ * @param lineNumber 目标行号（1-based）
+ * @param filePath 文件路径（用于确定语言）
+ */
+export function findCodeContext(code: string, lineNumber: number, filePath?: string): CodeContext {
+  const parseResult = parseCode(code, filePath);
+  const context: CodeContext = {
+    enclosingClass: null,
+    enclosingFunction: null,
+    blockType: 'module',
+    nestingDepth: 0,
+    scopeChain: []
+  };
+
+  let bestMatch: { element: CodeElement | ClassInfo; depth: number } | null = null;
+
+  // 查找包含该行的类
+  for (const cls of parseResult.classes) {
+    if (lineNumber >= cls.startLine && lineNumber <= cls.endLine) {
+      // 检查是否在方法中
+      let inMethod = false;
+      for (const method of cls.methods) {
+        if (lineNumber >= method.startLine && lineNumber <= method.endLine) {
+          context.enclosingFunction = method;
+          context.enclosingClass = cls;
+          context.blockType = 'method';
+          context.scopeChain = [cls, method];
+          context.nestingDepth = 2;
+          inMethod = true;
+          bestMatch = { element: method, depth: 2 };
+          break;
+        }
+      }
+      if (!inMethod) {
+        context.enclosingClass = cls;
+        context.blockType = 'class';
+        context.scopeChain = [cls];
+        context.nestingDepth = 1;
+        bestMatch = { element: cls, depth: 1 };
+      }
+    }
+  }
+
+  // 如果没有在类中找到，查找独立函数
+  if (!context.enclosingClass) {
+    for (const func of parseResult.functions) {
+      if (lineNumber >= func.startLine && lineNumber <= func.endLine) {
+        context.enclosingFunction = func;
+        context.blockType = 'function';
+        context.scopeChain = [func];
+        context.nestingDepth = 1;
+        bestMatch = { element: func, depth: 1 };
+        break;
+      }
+    }
+  }
+
+  // 如果仍未找到，可能是模块级别代码
+  if (!bestMatch) {
+    context.blockType = 'module';
+    context.nestingDepth = 0;
+  }
+
+  return context;
+}
+
+/**
+ * 查找代码中所有的函数/方法调用
+ * @param code 源代码
+ * @param filePath 文件路径
+ */
+export function findFunctionCalls(code: string, filePath?: string): Map<string, CallInfo[]> {
+  const callGraph = new Map<string, CallInfo[]>();
+  const extension = filePath?.split('.').pop()?.toLowerCase() || '';
+  const lines = code.split('\n');
+
+  if (['py'].includes(extension)) {
+    // Python 调用分析（使用正则）
+    const callRegex = /(\w+)\s*\(/g;
+    lines.forEach((line, index) => {
+      let match;
+      while ((match = callRegex.exec(line)) !== null) {
+        const calledName = match[1];
+        // 跳过关键字
+        if (['if', 'for', 'while', 'with', 'def', 'class', 'import', 'from', 'return', 'print'].includes(calledName)) {
+          continue;
+        }
+        
+        if (!callGraph.has(calledName)) {
+          callGraph.set(calledName, []);
+        }
+        callGraph.get(calledName)!.push({
+          callerName: 'unknown',
+          callerType: 'module',
+          line: index + 1,
+          codeSnippet: line.trim()
+        });
+      }
+    });
+  } else {
+    // JavaScript/TypeScript 调用分析（使用 AST）
+    try {
+      const ast = babelParser.parse(code, {
+        sourceType: 'module',
+        plugins: ['typescript', 'jsx', 'decorators-legacy'],
+        allowAwaitOutsideFunction: true,
+        allowReturnOutsideFunction: true
+      });
+
+      traverseCallNodes(ast, lines, callGraph);
+    } catch (e) {
+      // AST 解析失败，降级使用正则
+      const callRegex = /(\w+)\s*\(/g;
+      lines.forEach((line, index) => {
+        let match;
+        while ((match = callRegex.exec(line)) !== null) {
+          const calledName = match[1];
+          if (['if', 'for', 'while', 'with', 'function', 'class', 'import', 'from', 'return', 'console'].includes(calledName)) {
+            continue;
+          }
+          
+          if (!callGraph.has(calledName)) {
+            callGraph.set(calledName, []);
+          }
+          callGraph.get(calledName)!.push({
+            callerName: 'unknown',
+            callerType: 'module',
+            line: index + 1,
+            codeSnippet: line.trim()
+          });
+        }
+      });
+    }
+  }
+
+  return callGraph;
+}
+
+/**
+ * 遍历 AST 查找调用节点
+ */
+function traverseCallNodes(node: t.Node, lines: string[], callGraph: Map<string, CallInfo[]>, parentScope?: string) {
+  // 函数调用
+  if (t.isCallExpression(node)) {
+    let calleeName: string | undefined;
+    
+    if (t.isIdentifier(node.callee)) {
+      calleeName = node.callee.name;
+    } else if (t.isMemberExpression(node.callee) && t.isIdentifier(node.callee.property)) {
+      calleeName = node.callee.property.name;
+    }
+    
+    if (calleeName) {
+      const line = node.loc?.start.line || 0;
+      const codeSnippet = lines[line - 1]?.trim() || '';
+      
+      if (!callGraph.has(calleeName)) {
+        callGraph.set(calleeName, []);
+      }
+      callGraph.get(calleeName)!.push({
+        callerName: parentScope || 'unknown',
+        callerType: parentScope ? 'method' : 'module',
+        line,
+        codeSnippet
+      });
+    }
+  }
+  
+  // 递归遍历子节点
+  for (const key in node) {
+    if (key === 'loc' || key === 'start' || key === 'end' || key === 'leadingComments' || key === 'trailingComments') {
+      continue;
+    }
+    const value = (node as unknown as Record<string, unknown>)[key];
+    if (Array.isArray(value)) {
+      value.forEach((child: unknown) => {
+        if (t.isNode(child as t.Node)) {
+          traverseCallNodes(child as t.Node, lines, callGraph, parentScope);
+        }
+      });
+    } else if (t.isNode(value as t.Node)) {
+      traverseCallNodes(value as t.Node, lines, callGraph, parentScope);
+    }
+  }
+}
+
+/**
+ * 根据 AST 节点截取代码段
+ * @param code 源代码
+ * @param elementName 元素名称（函数名或类名）
+ * @param filePath 文件路径
+ */
+export function extractCodeSegment(code: string, elementName: string, filePath?: string): CodeSegment | null {
+  const parseResult = parseCode(code, filePath);
+  const lines = code.split('\n');
+
+  // 查找函数
+  const func = parseResult.functions.find(f => f.name === elementName);
+  if (func) {
+    const content = lines.slice(func.startLine - 1, func.endLine).join('\n');
+    return {
+      content,
+      startLine: func.startLine,
+      endLine: func.endLine,
+      element: func,
+      segmentType: func.type === 'method' ? 'method' : 'function'
+    };
+  }
+
+  // 查找类
+  const cls = parseResult.classes.find(c => c.name === elementName);
+  if (cls) {
+    const content = lines.slice(cls.startLine - 1, cls.endLine).join('\n');
+    return {
+      content,
+      startLine: cls.startLine,
+      endLine: cls.endLine,
+      element: cls,
+      segmentType: 'class'
+    };
+  }
+
+  // 查找类方法
+  for (const cls of parseResult.classes) {
+    const method = cls.methods.find(m => m.name === elementName);
+    if (method) {
+      const content = lines.slice(method.startLine - 1, method.endLine).join('\n');
+      return {
+        content,
+        startLine: method.startLine,
+        endLine: method.endLine,
+        element: method,
+        segmentType: 'method'
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 查找调用指定函数的所有位置
+ * @param code 源代码
+ * @param targetFunction 目标函数名
+ * @param filePath 文件路径
+ */
+export function findCallers(code: string, targetFunction: string, filePath?: string): CallInfo[] {
+  const callGraph = findFunctionCalls(code, filePath);
+  return callGraph.get(targetFunction) || [];
+}
+
+/**
+ * 获取完整的代码上下文（包含调用关系）
+ * @param code 源代码
+ * @param lineNumber 目标行号
+ * @param filePath 文件路径
+ */
+export function getFullCodeContext(code: string, lineNumber: number, filePath?: string): {
+  context: CodeContext;
+  segment: CodeSegment | null;
+  callers: CallInfo[];
+  callees: CallInfo[];
+} {
+  const context = findCodeContext(code, lineNumber, filePath);
+  const lines = code.split('\n');
+  
+  let segment: CodeSegment | null = null;
+  let callers: CallInfo[] = [];
+  let callees: CallInfo[] = [];
+
+  // 确定要分析的元素
+  let targetElement: CodeElement | ClassInfo | null = null;
+  if (context.enclosingFunction) {
+    targetElement = context.enclosingFunction;
+  } else if (context.enclosingClass) {
+    targetElement = context.enclosingClass;
+  }
+
+  if (targetElement) {
+    // 提取代码段
+    segment = extractCodeSegment(code, targetElement.name, filePath);
+    
+    // 查找调用者
+    callers = findCallers(code, targetElement.name, filePath);
+    
+    // 查找被调用者（该元素调用了哪些函数）
+    if (segment) {
+      const segmentCalls = findFunctionCalls(segment.content, filePath);
+      for (const [funcName, callInfos] of segmentCalls.entries()) {
+        callees = [...callees, ...callInfos];
+      }
+    }
+  }
+
+  return { context, segment, callers, callees };
+}

@@ -10,7 +10,7 @@ import { z } from "zod";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "fs";
 import { join, relative, dirname, basename } from "path";
 import { glob } from "glob";
-import { parseCode, CodeElement, ClassInfo, ImportInfo, ParseResult } from "./ast-parser.js";
+import { parseCode, CodeElement, ClassInfo, ImportInfo, ParseResult, findCodeContext, findFunctionCalls, extractCodeSegment, findCallers, getFullCodeContext, CodeContext, CallInfo, CodeSegment } from "./ast-parser.js";
 
 // 工具输入验证 Schema
 const ProjectMapSchema = z.object({
@@ -74,6 +74,34 @@ const GetClassStructureSchema = z.object({
 const AnalyzeImportsSchema = z.object({
   filePath: z.string().describe("源代码文件路径"),
   includeDetails: z.boolean().optional().describe("是否包含详细信息，默认 true"),
+});
+
+// AST 代码上下文分析 Schema
+const GetCodeContextSchema = z.object({
+  filePath: z.string().describe("源代码文件路径"),
+  lineNumber: z.number().describe("目标行号（1-based）"),
+  includeCallers: z.boolean().optional().describe("是否包含调用者信息，默认 true"),
+  includeCallees: z.boolean().optional().describe("是否包含被调用者信息，默认 true"),
+  includeSegment: z.boolean().optional().describe("是否包含代码段内容，默认 true"),
+});
+
+const FindCallersSchema = z.object({
+  filePath: z.string().describe("源代码文件路径"),
+  functionName: z.string().describe("目标函数名称"),
+  maxResults: z.number().optional().describe("最大返回结果数，默认 50"),
+});
+
+const ExtractCodeSegmentSchema = z.object({
+  filePath: z.string().describe("源代码文件路径"),
+  elementName: z.string().describe("元素名称（函数名或类名）"),
+  includeLineNumbers: z.boolean().optional().describe("是否包含行号，默认 true"),
+});
+
+const AnalyzeCodeDependenciesSchema = z.object({
+  filePath: z.string().describe("源代码文件路径"),
+  targetFunctions: z.array(z.string()).optional().describe("重点分析的函数列表"),
+  includeInternal: z.boolean().optional().describe("是否包含内部调用，默认 true"),
+  includeExternal: z.boolean().optional().describe("是否包含外部调用，默认 false"),
 });
 
 // 工具定义
@@ -311,6 +339,111 @@ const TOOLS = [
       properties: {
         filePath: { type: "string", description: "源代码文件路径" },
         includeDetails: { type: "boolean", description: "是否包含详细信息" },
+      },
+      required: ["filePath"],
+    },
+  },
+  {
+    name: "get_code_context",
+    description: `根据行号获取代码的完整上下文，包括所属类/函数、调用关系等。
+    
+功能特点：
+- 定位代码所属的类和函数
+- 分析代码嵌套深度和作用域链
+- 提取完整的代码段
+- 查找调用该代码的位置
+- 查找该代码调用的其他函数
+
+使用场景：
+- 代码理解和导航
+- 重构前的影响分析
+- 调试时定位上下文
+- 代码审查`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "源代码文件路径" },
+        lineNumber: { type: "number", description: "目标行号（1-based）" },
+        includeCallers: { type: "boolean", description: "是否包含调用者信息" },
+        includeCallees: { type: "boolean", description: "是否包含被调用者信息" },
+        includeSegment: { type: "boolean", description: "是否包含代码段内容" },
+      },
+      required: ["filePath", "lineNumber"],
+    },
+  },
+  {
+    name: "find_callers",
+    description: `查找调用指定函数的所有位置。
+    
+功能特点：
+- 基于 AST 分析函数调用
+- 支持跨作用域查找
+- 返回调用位置的代码片段
+- 区分内部和外部调用
+
+使用场景：
+- 函数使用分析
+- API 使用情况统计
+- 重构影响范围评估
+- 删除未使用代码`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "源代码文件路径" },
+        functionName: { type: "string", description: "目标函数名称" },
+        maxResults: { type: "number", description: "最大返回结果数" },
+      },
+      required: ["filePath", "functionName"],
+    },
+  },
+  {
+    name: "extract_code_segment",
+    description: `根据函数名或类名提取完整的代码段。
+    
+功能特点：
+- 基于 AST 精确定位
+- 提取完整的函数/类定义
+- 保留原始格式和缩进
+- 可选包含行号
+
+使用场景：
+- 代码片段提取
+- 函数文档生成
+- 代码复用参考
+- 代码审查`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "源代码文件路径" },
+        elementName: { type: "string", description: "元素名称（函数名或类名）" },
+        includeLineNumbers: { type: "boolean", description: "是否包含行号" },
+      },
+      required: ["filePath", "elementName"],
+    },
+  },
+  {
+    name: "analyze_code_dependencies",
+    description: `分析代码的完整依赖关系，包括调用图和被调用图。
+    
+功能特点：
+- 构建函数调用图
+- 分析内部依赖关系
+- 识别核心函数和叶子函数
+- 检测循环调用
+- 统计调用频率
+
+使用场景：
+- 架构分析
+- 性能优化（识别热点）
+- 代码解耦
+- 测试覆盖率分析`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "源代码文件路径" },
+        targetFunctions: { type: "array", items: { type: "string" }, description: "重点分析的函数列表" },
+        includeInternal: { type: "boolean", description: "是否包含内部调用" },
+        includeExternal: { type: "boolean", description: "是否包含外部调用" },
       },
       required: ["filePath"],
     },
@@ -1117,6 +1250,312 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           modulesMap.forEach((_, moduleName) => {
             resultText += `- \`${moduleName}\`\n`;
           });
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: resultText,
+            },
+          ],
+        };
+      }
+      
+      case "get_code_context": {
+        const validated = GetCodeContextSchema.parse(args);
+        const {
+          filePath,
+          lineNumber,
+          includeCallers = true,
+          includeCallees = true,
+          includeSegment = true,
+        } = validated;
+        
+        // 读取代码内容
+        const fileContent = readFileSync(filePath, "utf-8");
+        
+        // 获取完整上下文
+        const result = getFullCodeContext(fileContent, lineNumber, filePath);
+        
+        let resultText = `## 代码上下文分析\n\n**文件**: ${filePath}\n**目标行**: ${lineNumber}\n\n`;
+        
+        // 上下文信息
+        resultText += `### 作用域信息\n\n`;
+        resultText += `- **块类型**: ${result.context.blockType}\n`;
+        resultText += `- **嵌套深度**: ${result.context.nestingDepth}\n`;
+        
+        if (result.context.enclosingClass) {
+          resultText += `- **所属类**: \`${result.context.enclosingClass.name}\`\n`;
+        }
+        if (result.context.enclosingFunction) {
+          resultText += `- **所属函数**: \`${result.context.enclosingFunction.name}\`\n`;
+        }
+        
+        if (result.context.scopeChain.length > 0) {
+          resultText += `- **作用域链**: ${result.context.scopeChain.map(s => s.name).join(' → ')}\n`;
+        }
+        resultText += '\n';
+        
+        // 代码段
+        if (includeSegment && result.segment) {
+          resultText += `### 代码段\n\n`;
+          resultText += `**类型**: ${result.segment.segmentType}\n`;
+          resultText += `**范围**: 第 ${result.segment.startLine}-${result.segment.endLine} 行\n\n`;
+          resultText += `\`\`\`\n${result.segment.content}\n\`\`\`\n\n`;
+        }
+        
+        // 调用者
+        if (includeCallers && result.callers.length > 0) {
+          resultText += `### 调用者 (${result.callers.length})\n\n`;
+          result.callers.slice(0, 20).forEach((caller, i) => {
+            resultText += `${i + 1}. **第 ${caller.line} 行** - ${caller.callerType}: \`${caller.callerName}\`\n`;
+            resultText += `   \`${caller.codeSnippet}\`\n\n`;
+          });
+          if (result.callers.length > 20) {
+            resultText += `... 还有 ${result.callers.length - 20} 个调用者\n\n`;
+          }
+        } else if (includeCallers) {
+          resultText += `### 调用者\n\n*没有找到调用者*\n\n`;
+        }
+        
+        // 被调用者
+        if (includeCallees && result.callees.length > 0) {
+          resultText += `### 被调用的函数 (${result.callees.length})\n\n`;
+          const uniqueCallees = new Map<string, number>();
+          result.callees.forEach(c => {
+            uniqueCallees.set(c.callerName, (uniqueCallees.get(c.callerName) || 0) + 1);
+          });
+          Array.from(uniqueCallees.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 15)
+            .forEach(([name, count]) => {
+              resultText += `- \`${name}\` (${count}次)\n`;
+            });
+          resultText += '\n';
+        } else if (includeCallees) {
+          resultText += `### 被调用的函数\n\n*没有调用其他函数*\n\n`;
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: resultText,
+            },
+          ],
+        };
+      }
+      
+      case "find_callers": {
+        const validated = FindCallersSchema.parse(args);
+        const {
+          filePath,
+          functionName,
+          maxResults = 50,
+        } = validated;
+        
+        // 读取代码内容
+        const fileContent = readFileSync(filePath, "utf-8");
+        
+        // 查找调用者
+        const callers = findCallers(fileContent, functionName, filePath);
+        
+        let resultText = `## 函数调用分析\n\n**文件**: ${filePath}\n**目标函数**: \`${functionName}\`\n`;
+        resultText += `**找到调用**: ${callers.length} 处\n\n`;
+        
+        if (callers.length === 0) {
+          resultText += `*没有找到调用该函数的位置*\n`;
+          resultText += `\n**提示**: 该函数可能未被使用，或者是外部 API。`;
+        } else {
+          // 按作用域分组
+          const byScope = new Map<string, CallInfo[]>();
+          callers.forEach(c => {
+            const key = c.callerType === 'module' ? '模块级别' : c.callerName;
+            if (!byScope.has(key)) byScope.set(key, []);
+            byScope.get(key)!.push(c);
+          });
+          
+          resultText += `### 调用位置\n\n`;
+          let displayed = 0;
+          byScope.forEach((calls, scope) => {
+            resultText += `#### ${scope}\n\n`;
+            calls.slice(0, 10).forEach(c => {
+              resultText += `- **第 ${c.line} 行**: \`${c.codeSnippet}\`\n`;
+              displayed++;
+              if (displayed >= maxResults) return;
+            });
+            resultText += '\n';
+            if (displayed >= maxResults) return;
+          });
+          
+          if (callers.length > maxResults) {
+            resultText += `... 还有 ${callers.length - maxResults} 个调用位置未显示\n`;
+          }
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: resultText,
+            },
+          ],
+        };
+      }
+      
+      case "extract_code_segment": {
+        const validated = ExtractCodeSegmentSchema.parse(args);
+        const {
+          filePath,
+          elementName,
+          includeLineNumbers = true,
+        } = validated;
+        
+        // 读取代码内容
+        const fileContent = readFileSync(filePath, "utf-8");
+        
+        // 提取代码段
+        const segment = extractCodeSegment(fileContent, elementName, filePath);
+        
+        if (!segment) {
+          // 尝试列出可用的元素
+          const parseResult = parseCode(fileContent, filePath);
+          const availableFunctions = parseResult.functions.map(f => f.name);
+          const availableClasses = parseResult.classes.map(c => c.name);
+          const availableMethods = parseResult.classes.flatMap(c => c.methods.map(m => `${c.name}.${m.name}`));
+          
+          let resultText = `## ❌ 未找到元素\n\n`;
+          resultText += `**搜索名称**: \`${elementName}\`\n\n`;
+          resultText += `### 可用的元素\n\n`;
+          resultText += `**函数** (${availableFunctions.length}): ${availableFunctions.slice(0, 10).join(', ')}${availableFunctions.length > 10 ? '...' : ''}\n\n`;
+          resultText += `**类** (${availableClasses.length}): ${availableClasses.slice(0, 10).join(', ')}${availableClasses.length > 10 ? '...' : ''}\n\n`;
+          resultText += `**方法** (${availableMethods.length}): ${availableMethods.slice(0, 10).join(', ')}${availableMethods.length > 10 ? '...' : ''}\n`;
+          
+          return {
+            content: [
+              {
+                type: "text",
+                text: resultText,
+              },
+            ],
+          };
+        }
+        
+        let resultText = `## 代码段提取\n\n`;
+        resultText += `**元素**: \`${elementName}\`\n`;
+        resultText += `**类型**: ${segment.segmentType}\n`;
+        resultText += `**范围**: 第 ${segment.startLine}-${segment.endLine} 行\n`;
+        resultText += `**行数**: ${segment.endLine - segment.startLine + 1}\n\n`;
+        
+        if (includeLineNumbers) {
+          const lines = segment.content.split('\n');
+          const maxLineNum = String(segment.endLine).length;
+          resultText += `\`\`\`\n`;
+          lines.forEach((line, i) => {
+            const lineNum = String(segment.startLine + i).padStart(maxLineNum, ' ');
+            resultText += `${lineNum} │ ${line}\n`;
+          });
+          resultText += `\`\`\`\n`;
+        } else {
+          resultText += `\`\`\`\n${segment.content}\n\`\`\`\n`;
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: resultText,
+            },
+          ],
+        };
+      }
+      
+      case "analyze_code_dependencies": {
+        const validated = AnalyzeCodeDependenciesSchema.parse(args);
+        const {
+          filePath,
+          targetFunctions = [],
+          includeInternal = true,
+          includeExternal = false,
+        } = validated;
+        
+        // 读取代码内容
+        const fileContent = readFileSync(filePath, "utf-8");
+        
+        // 解析代码
+        const parseResult = parseCode(fileContent, filePath);
+        
+        // 查找所有调用
+        const callGraph = findFunctionCalls(fileContent, filePath);
+        
+        let resultText = `## 代码依赖分析\n\n**文件**: ${filePath}\n\n`;
+        
+        // 统计信息
+        resultText += `### 统计\n\n`;
+        resultText += `- **函数总数**: ${parseResult.functions.length}\n`;
+        resultText += `- **类总数**: ${parseResult.classes.length}\n`;
+        resultText += `- **被调用的函数数**: ${callGraph.size}\n`;
+        resultText += `- **总调用次数**: ${Array.from(callGraph.values()).reduce((sum, calls) => sum + calls.length, 0)}\n\n`;
+        
+        // 调用频率统计
+        resultText += `### 调用频率 Top 10\n\n`;
+        const callFrequency = Array.from(callGraph.entries())
+          .map(([name, calls]) => ({ name, count: calls.length }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 10);
+        
+        if (callFrequency.length > 0) {
+          callFrequency.forEach(({ name, count }) => {
+            resultText += `- \`${name}\`: ${count} 次\n`;
+          });
+          resultText += '\n';
+        } else {
+          resultText += `*没有找到函数调用*\n\n`;
+        }
+        
+        // 目标函数分析
+        if (targetFunctions.length > 0) {
+          resultText += `### 目标函数分析\n\n`;
+          targetFunctions.forEach(funcName => {
+            const calls = callGraph.get(funcName) || [];
+            resultText += `#### \`${funcName}\`\n`;
+            resultText += `- **调用次数**: ${calls.length}\n`;
+            if (calls.length > 0) {
+              resultText += `- **调用位置**:\n`;
+              calls.slice(0, 5).forEach(c => {
+                resultText += `  - 第 ${c.line} 行：\`${c.codeSnippet}\`\n`;
+              });
+              if (calls.length > 5) {
+                resultText += `  - ... 还有 ${calls.length - 5} 个位置\n`;
+              }
+            }
+            resultText += '\n';
+          });
+        }
+        
+        // 函数定义与调用关系
+        if (includeInternal) {
+          resultText += `### 内部函数调用关系\n\n`;
+          const definedFunctions = new Set([
+            ...parseResult.functions.map(f => f.name),
+            ...parseResult.classes.flatMap(c => c.methods.map(m => m.name))
+          ]);
+          
+          const internalCalls = Array.from(callGraph.entries())
+            .filter(([name]) => definedFunctions.has(name));
+          
+          if (internalCalls.length > 0) {
+            internalCalls.slice(0, 20).forEach(([name, calls]) => {
+              resultText += `- \`${name}\`: ${calls.length} 次调用\n`;
+            });
+            if (internalCalls.length > 20) {
+              resultText += `- ... 还有 ${internalCalls.length - 20} 个函数\n`;
+            }
+          } else {
+            resultText += `*没有找到内部函数调用*\n`;
+          }
+          resultText += '\n';
         }
         
         return {

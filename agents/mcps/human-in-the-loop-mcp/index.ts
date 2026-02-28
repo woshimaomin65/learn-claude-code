@@ -132,6 +132,38 @@ function checkTimeouts() {
   }
 }
 
+
+/**
+ * Internal helper to create approval requests (used by tools that delegate)
+ */
+async function createApprovalRequestInternal(
+  requestId: string,
+  type: z.infer<typeof ApprovalType>,
+  description: string,
+  requester: string,
+  priority: z.infer<typeof Priority> = "normal",
+  timeoutMinutes: number = 240
+): Promise<string> {
+  const id = `appr-${generateId()}`;
+  const now = Date.now();
+  const expiresAt = now + (timeoutMinutes * 60 * 1000);
+  
+  approvalRequests.set(id, {
+    requestId,
+    type,
+    title: "",
+    description,
+    data: {},
+    status: "pending",
+    priority,
+    createdAt: now,
+    expiresAt,
+    metadata: { source: "internal_delegation" },
+  });
+  
+  return id;
+}
+
 // ============================================================================
 // MCP Server
 // ============================================================================
@@ -583,22 +615,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           metadata: z.record(z.unknown()).optional(),
         }).parse(args);
         
-        // Delegate to create_approval_request
-        return server.getRequestHandler(CallToolRequestSchema)({
-          params: {
-            name: "create_approval_request",
-            arguments: {
+        // Create approval request directly
+        const selectionId = await createApprovalRequestInternal(
+          `selection-${generateId()}`,
+          "selection",
+          parsed.description,
+          "user",
+          parsed.priority,
+          240
+        );
+        
+        const selectionRequest = approvalRequests.get(selectionId)!;
+        selectionRequest.metadata!.allow_multiple = parsed.allow_multiple;
+        selectionRequest.metadata!.options = parsed.options;
+        selectionRequest.metadata!.title = parsed.title;
+        if (parsed.session_id) selectionRequest.metadata!.session_id = parsed.session_id;
+        if (parsed.metadata) selectionRequest.metadata!.custom = parsed.metadata;
+        
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              approval_id: selectionId,
+              status: "pending",
               type: "selection",
               title: parsed.title,
-              description: parsed.description,
-              data: { allow_multiple: parsed.allow_multiple },
               options: parsed.options,
-              priority: parsed.priority,
-              session_id: parsed.session_id,
-              metadata: parsed.metadata,
-            },
-          },
-        } as any);
+              allow_multiple: parsed.allow_multiple,
+            }, null, 2),
+          }],
+        };
       }
       
       // ===== Data Review Tools =====
@@ -614,25 +660,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           metadata: z.record(z.unknown()).optional(),
         }).parse(args);
         
-        // Delegate to create_approval_request
-        return server.getRequestHandler(CallToolRequestSchema)({
-          params: {
-            name: "create_approval_request",
-            arguments: {
+        // Create approval request directly
+        const dataReviewId = await createApprovalRequestInternal(
+          `data-${generateId()}`,
+          "data_review",
+          parsed.description,
+          "user",
+          parsed.priority,
+          240
+        );
+        
+        const dataRequest = approvalRequests.get(dataReviewId)!;
+        dataRequest.data = {
+          ...parsed.data,
+          _editable_fields: parsed.editable_fields,
+          _validation_schema: parsed.validation_schema,
+        };
+        dataRequest.metadata!.title = parsed.title;
+        if (parsed.session_id) dataRequest.metadata!.session_id = parsed.session_id;
+        if (parsed.metadata) dataRequest.metadata!.custom = parsed.metadata;
+        
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              approval_id: dataReviewId,
+              status: "pending",
               type: "data_review",
               title: parsed.title,
-              description: parsed.description,
-              data: {
-                ...parsed.data,
-                _editable_fields: parsed.editable_fields,
-                _validation_schema: parsed.validation_schema,
-              },
-              priority: parsed.priority,
-              session_id: parsed.session_id,
-              metadata: parsed.metadata,
-            },
-          },
-        } as any);
+              editable_fields: parsed.editable_fields,
+            }, null, 2),
+          }],
+        };
       }
       
       // ===== Escalation Tools =====

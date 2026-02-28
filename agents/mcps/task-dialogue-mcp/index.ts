@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 
 /**
- * Task Dialogue MCP Server v2.0
+ * Task Dialogue MCP Server v3.0
  * 
- * Enhanced with full conversation management capabilities:
+ * Focused on task-oriented dialogue management. 
+ * Works alongside human-in-the-loop-mcp for approval workflows.
+ * 
+ * Capabilities:
  * - Schema analysis: inspect_datasource, get_data_schema
  * - Data validation: validate_against_schema, check_duplicate_records
- * - Conversation management: dialogue_state_create/update/get (NEW)
- * - User interaction: user_confirm/response, handle_interruption (NEW)
- * - HITL: propose_human_intervention
- * - Dialogue history: dialogue_history_add/get, next_action_recommend (NEW)
+ * - Conversation management: dialogue_state_create/update/get
+ * - Interruption handling: handle_interruption
+ * - Dialogue history: dialogue_history_add/get
+ * - Action recommendations: next_action_recommend
+ * 
+ * For user confirmations and approvals, use human-in-the-loop-mcp.
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -31,7 +36,7 @@ interface DialogueState {
   currentSlot: string | null;
   completedSlots: string[];
   pendingSlots: string[];
-  status: "active" | "confirmed" | "submitted" | "interrupted" | "abandoned";
+  status: "active" | "pending_approval" | "completed" | "interrupted" | "abandoned";
   interruptionCount: number;
   lastUpdated: number;
   metadata: Record<string, unknown>;
@@ -48,19 +53,8 @@ interface DialogueTurn {
   action?: string;
 }
 
-interface ConfirmationRequest {
-  requestId: string;
-  sessionId: string;
-  message: string;
-  data: Record<string, unknown>;
-  status: "pending" | "confirmed" | "rejected" | "timeout";
-  createdAt: number;
-  timeoutSeconds: number;
-}
-
 const dialogueStates = new Map<string, DialogueState>();
 const dialogueHistory = new Map<string, DialogueTurn[]>();
-const confirmationRequests = new Map<string, ConfirmationRequest>();
 
 // ============================================================================
 // Schemas
@@ -154,11 +148,11 @@ function calculateSimilarity(obj1: Record<string, unknown>, obj2: Record<string,
 
 function detectInterruptionIntent(message: string): { isInterruption: boolean; intent?: string } {
   const patterns: Array<{ pattern: RegExp; intent: string }> = [
-    { pattern: /\b(等一下 | 等等 | 暂停 | 停一下 | 打断 | 稍等)\b/i, intent: "pause" },
-    { pattern: /\b(不对 | 错了 | 不是 | 不正确 | 应该是)\b/i, intent: "correction" },
-    { pattern: /\b(我想问 | 我想说 | 换个话题 | 回到 | 先问个)\b/i, intent: "topic_change" },
-    { pattern: /\b(取消 | 不要了 | 不办了 | 退出 | 算了)\b/i, intent: "cancel" },
-    { pattern: /\b(为什么 | 怎么 | 如何 | 什么意思 | 什么是)\b/i, intent: "question" },
+    { pattern: /(等一下 | 等等 | 暂停 | 停一下 | 稍等 | 打断)/i, intent: "pause" },
+    { pattern: /(不对 | 错了 | 不是 | 不正确 | 应该是)/i, intent: "correction" },
+    { pattern: /(我想问 | 我想说 | 换个话题 | 回到 | 先问)/i, intent: "topic_change" },
+    { pattern: /(取消 | 不要了 | 不办了 | 算了 | 退出)/i, intent: "cancel" },
+    { pattern: /(为什么 | 怎么 | 如何 | 什么意思 | 多久)/i, intent: "question" },
   ];
   for (const { pattern, intent } of patterns) if (pattern.test(message)) return { isInterruption: true, intent };
   return { isInterruption: false };
@@ -176,24 +170,31 @@ function getNextSlot(pendingSlots: string[], completedSlots: string[], fields: a
 // MCP Server
 // ============================================================================
 
-const server = new Server({ name: "task-dialogue-mcp", version: "2.0.0" }, { capabilities: { tools: {} } });
+const server = new Server({ name: "task-dialogue-mcp", version: "3.0.0" }, { capabilities: { tools: {} } });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
+    // ===== Schema Analysis =====
     { name: "inspect_datasource", description: "Analyze data source (SQL DDL, Excel, CSV, JSON, file path) and extract schema", inputSchema: zodToJsonSchema(z.object({ uri: z.string(), include_relationships: z.boolean().optional().default(true) })) },
     { name: "get_data_schema", description: "Alias for inspect_datasource", inputSchema: zodToJsonSchema(z.object({ source: z.string() })) },
     { name: "validate_against_schema", description: "Validate slot values against schema. Returns errors, warnings, ready_for_write", inputSchema: zodToJsonSchema(z.object({ data_json: z.record(z.unknown()), schema: z.object({ entity: z.string(), fields: z.array(FieldSchema) }) })) },
     { name: "check_duplicate_records", description: "Check for duplicate records. Returns similarity score and matches", inputSchema: zodToJsonSchema(z.object({ current_data: z.record(z.unknown()), existing_records: z.array(z.record(z.unknown())), threshold: z.number().min(0).max(1).optional().default(0.8) })) },
-    { name: "dialogue_state_create", description: "[NEW v2.0] Create dialogue session state for slot collection. Returns session_id and slot classification", inputSchema: zodToJsonSchema(z.object({ entity: z.string(), schema: z.object({ entity: z.string(), fields: z.array(FieldSchema) }).optional(), initial_slots: z.record(z.unknown()).optional(), metadata: z.record(z.unknown()).optional() })) },
-    { name: "dialogue_state_update", description: "[NEW v2.0] Update dialogue session with slot value. Returns updated state and next slot", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), slot_name: z.string(), slot_value: z.unknown(), action: z.enum(["collect", "modify", "clear"]).optional().default("collect") })) },
-    { name: "dialogue_state_get", description: "[NEW v2.0] Get current dialogue session state", inputSchema: zodToJsonSchema(z.object({ session_id: z.string() })) },
-    { name: "user_confirm", description: "[NEW v2.0] Create confirmation request for user verification. Returns request_id", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), message: z.string(), data: z.record(z.unknown()), timeout_seconds: z.number().optional().default(300) })) },
-    { name: "user_confirm_response", description: "[NEW v2.0] Submit user response to confirmation request", inputSchema: zodToJsonSchema(z.object({ request_id: z.string(), response: z.enum(["confirmed", "rejected", "timeout"]), feedback: z.string().optional() })) },
-    { name: "handle_interruption", description: "[NEW v2.0] Handle user interruption. Detects intent (pause/correction/topic_change/cancel/question) and recommends action", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), user_message: z.string(), action: z.enum(["analyze", "recover", "abort", "pause"]).optional().default("analyze") })) },
-    { name: "propose_human_intervention", description: "Trigger HITL for sensitive operations or conflicts", inputSchema: zodToJsonSchema(z.object({ issue_type: z.enum(["duplicate_detection", "sensitive_field", "validation_failure", "user_request", "schema_conflict", "interruption_recovery"]), current_data: z.record(z.unknown()), session_id: z.string().optional(), context: z.record(z.unknown()).optional() })) },
-    { name: "dialogue_history_add", description: "[NEW v2.0] Add turn to dialogue history", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), role: z.enum(["user", "assistant", "system"]), content: z.string(), intent: z.string().optional(), slots: z.record(z.unknown()).optional(), action: z.string().optional() })) },
-    { name: "dialogue_history_get", description: "[NEW v2.0] Retrieve dialogue history", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), limit: z.number().optional().default(50) })) },
-    { name: "next_action_recommend", description: "[NEW v2.0] Get recommended next action based on dialogue state", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), schema: z.object({ entity: z.string(), fields: z.array(FieldSchema) }).optional() })) },
+    
+    // ===== Conversation State Management =====
+    { name: "dialogue_state_create", description: "Create dialogue session state for slot collection. Returns session_id and slot classification", inputSchema: zodToJsonSchema(z.object({ entity: z.string(), schema: z.object({ entity: z.string(), fields: z.array(FieldSchema) }).optional(), initial_slots: z.record(z.unknown()).optional(), metadata: z.record(z.unknown()).optional() })) },
+    { name: "dialogue_state_update", description: "Update dialogue session with slot value. Returns updated state and next slot", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), slot_name: z.string(), slot_value: z.unknown(), action: z.enum(["collect", "modify", "clear"]).optional().default("collect") })) },
+    { name: "dialogue_state_get", description: "Get current dialogue session state", inputSchema: zodToJsonSchema(z.object({ session_id: z.string() })) },
+    
+    // ===== Interruption Handling =====
+    { name: "handle_interruption", description: "Handle user interruption. Detects intent (pause/correction/topic_change/cancel/question) and recommends action", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), user_message: z.string(), action: z.enum(["analyze", "recover", "abort", "pause"]).optional().default("analyze") })) },
+    
+    // ===== HITL Integration (uses human-in-the-loop-mcp) =====
+    { name: "prepare_for_approval", description: "Prepare dialogue data for approval workflow. Returns formatted data ready for human-in-the-loop-mcp.create_approval_request", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), approval_type: z.enum(["confirmation", "approval", "data_review"]).optional().default("confirmation"), title: z.string().optional(), description: z.string().optional(), priority: z.enum(["low", "normal", "high", "critical"]).optional().default("normal") })) },
+    
+    // ===== Dialogue History =====
+    { name: "dialogue_history_add", description: "Add turn to dialogue history", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), role: z.enum(["user", "assistant", "system"]), content: z.string(), intent: z.string().optional(), slots: z.record(z.unknown()).optional(), action: z.string().optional() })) },
+    { name: "dialogue_history_get", description: "Retrieve dialogue history", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), limit: z.number().optional().default(50) })) },
+    { name: "next_action_recommend", description: "Get recommended next action based on dialogue state", inputSchema: zodToJsonSchema(z.object({ session_id: z.string(), schema: z.object({ entity: z.string(), fields: z.array(FieldSchema) }).optional() })) },
   ],
 }));
 
@@ -257,10 +258,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             else softSlots.push(field.name);
           }
         }
-        const state: DialogueState = { sessionId, entity: parsed.entity, collectedSlots: parsed.initial_slots || {}, currentSlot: hardSlots[0] || softSlots[0] || null, completedSlots: [], pendingSlots: [...hardSlots, ...softSlots], status: "active", interruptionCount: 0, lastUpdated: Date.now(), metadata: parsed.metadata || {} };
+        const completedSlots = Object.keys(parsed.initial_slots || {}).filter(k => [...hardSlots, ...softSlots].includes(k));
+        const state: DialogueState = { sessionId, entity: parsed.entity, collectedSlots: { ...parsed.initial_slots }, currentSlot: null, completedSlots, pendingSlots: [...hardSlots, ...softSlots], status: "active", interruptionCount: 0, lastUpdated: Date.now(), metadata: parsed.metadata || {} };
+        const remaining = state.pendingSlots.filter(s => !state.completedSlots.includes(s));
+        state.currentSlot = remaining[0] || null;
         dialogueStates.set(sessionId, state);
         dialogueHistory.set(sessionId, []);
-        return { content: [{ type: "text", text: JSON.stringify({ session_id: sessionId, state: { entity: state.entity, status: state.status, collected_slots: state.collectedSlots, pending_slots: state.pendingSlots, completed_slots: state.completedSlots, current_slot: state.currentSlot }, slot_classification: { hard_slots: hardSlots, soft_slots: softSlots, hidden_slots: hiddenSlots } }, null, 2) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ session_id: sessionId, state: { entity: state.entity, status: state.status, collected_slots: state.collectedSlots, pending_slots: remaining, completed_slots: state.completedSlots, current_slot: state.currentSlot }, slot_classification: { hard_slots: hardSlots, soft_slots: softSlots, hidden_slots: hiddenSlots } }, null, 2) }] };
       }
       
       case "dialogue_state_update": {
@@ -272,7 +276,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         state.currentSlot = getNextSlot(state.pendingSlots, state.completedSlots, []);
         state.lastUpdated = Date.now();
         const isComplete = state.pendingSlots.filter(s => !state.completedSlots.includes(s)).length === 0;
-        if (isComplete && state.status === "active") state.status = "confirmed";
+        if (isComplete && state.status === "active") state.status = "pending_approval";
         dialogueStates.set(parsed.session_id, state);
         return { content: [{ type: "text", text: JSON.stringify({ session_id: parsed.session_id, updated: true, slot: parsed.slot_name, value: parsed.slot_value, action: parsed.action, state: { status: state.status, collected_slots: state.collectedSlots, completed_slots: state.completedSlots, pending_slots: state.pendingSlots.filter(s => !state.completedSlots.includes(s)), current_slot: state.currentSlot }, is_complete: isComplete }, null, 2) }] };
       }
@@ -282,26 +286,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const state = dialogueStates.get(parsed.session_id);
         if (!state) return { content: [{ type: "text", text: JSON.stringify({ error: "Session not found", session_id: parsed.session_id }, null, 2) }], isError: true };
         return { content: [{ type: "text", text: JSON.stringify({ session_id: state.sessionId, entity: state.entity, status: state.status, collected_slots: state.collectedSlots, completed_slots: state.completedSlots, pending_slots: state.pendingSlots.filter(s => !state.completedSlots.includes(s)), current_slot: state.currentSlot, interruption_count: state.interruptionCount, last_updated: new Date(state.lastUpdated).toISOString() }, null, 2) }] };
-      }
-      
-      case "user_confirm": {
-        const parsed = z.object({ session_id: z.string(), message: z.string(), data: z.record(z.unknown()), timeout_seconds: z.number().optional().default(300) }).parse(args);
-        const requestId = generateId("confirm");
-        confirmationRequests.set(requestId, { requestId, sessionId: parsed.session_id, message: parsed.message, data: parsed.data, status: "pending", createdAt: Date.now(), timeoutSeconds: parsed.timeout_seconds });
-        const state = dialogueStates.get(parsed.session_id);
-        if (state) { state.status = "confirmed"; dialogueStates.set(parsed.session_id, state); }
-        return { content: [{ type: "text", text: JSON.stringify({ request_id: requestId, session_id: parsed.session_id, status: "pending", message: parsed.message, data: parsed.data, timeout_seconds: parsed.timeout_seconds, expires_at: new Date(Date.now() + parsed.timeout_seconds * 1000).toISOString(), instructions: "Present this to user and call user_confirm_response with their answer" }, null, 2) }] };
-      }
-      
-      case "user_confirm_response": {
-        const parsed = z.object({ request_id: z.string(), response: z.enum(["confirmed", "rejected", "timeout"]), feedback: z.string().optional() }).parse(args);
-        const confirmation = confirmationRequests.get(parsed.request_id);
-        if (!confirmation) return { content: [{ type: "text", text: JSON.stringify({ error: "Confirmation request not found", request_id: parsed.request_id }, null, 2) }], isError: true };
-        confirmation.status = parsed.response;
-        confirmationRequests.set(parsed.request_id, confirmation);
-        const state = dialogueStates.get(confirmation.sessionId);
-        if (state) { state.status = parsed.response === "confirmed" ? "submitted" : "abandoned"; dialogueStates.set(confirmation.sessionId, state); }
-        return { content: [{ type: "text", text: JSON.stringify({ request_id: parsed.request_id, response: parsed.response, feedback: parsed.feedback, session_status: state?.status }, null, 2) }] };
       }
       
       case "handle_interruption": {
@@ -323,16 +307,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
       
-      case "propose_human_intervention": {
-        const parsed = z.object({ issue_type: z.enum(["duplicate_detection", "sensitive_field", "validation_failure", "user_request", "schema_conflict", "interruption_recovery"]), current_data: z.record(z.unknown()), session_id: z.string().optional(), context: z.record(z.unknown()).optional() }).parse(args);
-        const interventionId = generateId("HITL");
-        const isSensitive = parsed.issue_type === "sensitive_field" || containsSensitiveFields(parsed.current_data);
-        return { content: [{ type: "text", text: JSON.stringify({ intervention_id: interventionId, status: "pending_review", assigned_to: "human_agent_queue", issue_type: parsed.issue_type, reason: isSensitive ? "Sensitive field detected - requires human approval" : undefined, estimated_wait: "5 minutes", current_data: parsed.current_data, context: parsed.context }, null, 2) }] };
+      // ===== HITL Integration =====
+      case "prepare_for_approval": {
+        const parsed = z.object({ session_id: z.string(), approval_type: z.enum(["confirmation", "approval", "data_review"]).optional().default("confirmation"), title: z.string().optional(), description: z.string().optional(), priority: z.enum(["low", "normal", "high", "critical"]).optional().default("normal") }).parse(args);
+        const state = dialogueStates.get(parsed.session_id);
+        if (!state) return { content: [{ type: "text", text: JSON.stringify({ error: "Session not found", session_id: parsed.session_id }, null, 2) }], isError: true };
+        
+        const defaultTitle = `${state.entity} - 待确认`;
+        const defaultDescription = `请确认以下${state.entity}信息是否正确`;
+        
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              session_id: parsed.session_id,
+              hitl_request: {
+                type: parsed.approval_type,
+                title: parsed.title || defaultTitle,
+                description: parsed.description || defaultDescription,
+                data: state.collectedSlots,
+                priority: parsed.priority,
+                session_id: parsed.session_id,
+                metadata: {
+                  entity: state.entity,
+                  collected_count: state.completedSlots.length,
+                  collected_at: new Date(state.lastUpdated).toISOString(),
+                },
+              },
+              instructions: "Pass the hitl_request object to human-in-the-loop-mcp.create_approval_request",
+            }, null, 2),
+          }],
+        };
       }
       
       case "dialogue_history_add": {
         const parsed = z.object({ session_id: z.string(), role: z.enum(["user", "assistant", "system"]), content: z.string(), intent: z.string().optional(), slots: z.record(z.unknown()).optional(), action: z.string().optional() }).parse(args);
-        const turn: DialogueTurn = { turnId: generateId("turn"), sessionId: parsed.session_id, role: parsed.role, content: parsed.content, timestamp: Date.now(), intent: parsed.intent, slots: parsed.slots, action: parsed.action };
+        const turn = { turnId: generateId("turn"), sessionId: parsed.session_id, role: parsed.role, content: parsed.content, timestamp: Date.now(), intent: parsed.intent, slots: parsed.slots, action: parsed.action };
         let history = dialogueHistory.get(parsed.session_id);
         if (!history) { history = []; dialogueHistory.set(parsed.session_id, history); }
         history.push(turn);
@@ -355,26 +365,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const recommendation: any = { session_id: parsed.session_id, current_status: state.status, collected_count: state.completedSlots.length, pending_count: pendingSlots.length };
         
         if (state.status === "active") {
-          if (pendingSlots.length > 0) {
-            recommendation.action = "ask_slot";
-            recommendation.next_slot = state.currentSlot || pendingSlots[0];
-            recommendation.reason = "Continue collecting required information";
-          } else {
-            recommendation.action = "confirm_and_submit";
-            recommendation.reason = "All slots collected, ready for confirmation";
-          }
+          if (pendingSlots.length > 0) { recommendation.action = "ask_slot"; recommendation.next_slot = state.currentSlot || pendingSlots[0]; recommendation.reason = "Continue collecting required information"; }
+          else { recommendation.action = "prepare_approval"; recommendation.reason = "All slots collected, ready for approval workflow"; }
+        } else if (state.status === "pending_approval") {
+          recommendation.action = "await_approval"; recommendation.reason = "Waiting for approval from human-in-the-loop-mcp";
+        } else if (state.status === "completed") {
+          recommendation.action = "complete"; recommendation.reason = "Dialogue completed successfully";
         } else if (state.status === "interrupted") {
-          recommendation.action = "recover_dialogue";
-          recommendation.reason = "Dialogue was interrupted, needs recovery";
-        } else if (state.status === "confirmed") {
-          recommendation.action = "submit_data";
-          recommendation.reason = "Data confirmed, ready for submission";
+          recommendation.action = "recover_dialogue"; recommendation.reason = "Dialogue was interrupted, needs recovery";
         } else if (state.status === "abandoned") {
-          recommendation.action = "restart_or_close";
-          recommendation.reason = "User abandoned the dialogue";
-        } else if (state.status === "submitted") {
-          recommendation.action = "complete";
-          recommendation.reason = "Dialogue completed successfully";
+          recommendation.action = "restart_or_close"; recommendation.reason = "User abandoned the dialogue";
         }
         
         recommendation.collected_slots = state.collectedSlots;
@@ -393,7 +393,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Task Dialogue MCP Server v2.0 running on stdio");
+  console.error("Task Dialogue MCP Server v3.0 running on stdio");
+  console.error("For approval workflows, use human-in-the-loop-mcp");
 }
 
 main().catch(console.error);

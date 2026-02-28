@@ -1,0 +1,19 @@
+# Retrieve MCP Server Dependencies
+
+# MCP 框架
+mcp>=1.0.0
+
+# 向量数据库
+chromadb>=0.4.0
+
+# 文本向量化和 Rerank
+sentence-transformers>=2.2.0
+
+# 中文分词
+jieba>=0.42.0
+
+# 数值计算
+numpy>=1.24.0
+
+# 模型下载（可选，使用 ModelScope 下载）
+modelscope>=1.9.0

@@ -1765,6 +1765,13 @@ Need web information?
 - MCP server creation → mcp-builder
 - Web app testing → webapp-testing
 - Code comments (Chinese) → code-comment
+- **Creating new skills → skill-creator (REQUIRED for ALL skill creation tasks)**
+
+**Skill Creation (CRITICAL):**
+- **ANY task involving creating or adding new skills MUST use skill-creator**
+- skill-creator automatically updates task-decomposer and s_full.py to register the new skill
+- Do NOT create skills manually without using skill-creator
+- This ensures proper skill discovery and triggering across all agents
 
 **Communication:**
 - Internal comms, status reports → internal-comms

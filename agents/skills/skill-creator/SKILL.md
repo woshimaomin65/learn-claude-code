@@ -68,6 +68,16 @@ Based on the user interview, fill in these components:
 - **compatibility**: Required tools, dependencies (optional, rarely needed)
 - **the rest of the skill :)**
 
+### Update task-decomposer and s_full.py (REQUIRED after creating new skill)
+
+After writing the SKILL.md for a new skill, you MUST complete these two steps:
+
+1. **Update task-decomposer**: Edit `/Users/maomin/programs/vscode/learn-claude-code/agents/skills/task-decomposer/SKILL.md` to add the new skill to the "Available Skills" list. Include the skill's name and description from the SKILL.md frontmatter.
+
+2. **Update s_full.py**: Edit the SYSTEM prompt in `/Users/maomin/programs/vscode/learn-claude-code/agents/s_full.py` to add the new skill to the SKILL SELECTION GUIDE section. This ensures all agents know about and can trigger the new skill.
+
+These steps are critical — without them, the new skill won't be discovered or used by other agents!
+
 ### Skill Writing Guide
 
 #### Anatomy of a Skill

@@ -353,7 +353,7 @@ Need web information?
 ## 🛠️ Skill Creation & Optimization
 
 ### skill-creator
-**Trigger**: Users want to create a skill from scratch, update/optimize existing skills, run evals, or benchmark performance
+**Trigger**: Users want to create a skill from scratch, update/optimize existing skills, run evals, or benchmark performance. **ALSO use this skill for ANY task that involves creating or adding new skills to the system.**
 **Purpose**: Create, modify, and measure skill performance
 **Key Features**:
 - Create skills from scratch
@@ -361,6 +361,8 @@ Need web information?
 - Run evals to test skills
 - Benchmark performance with variance analysis
 - Optimize skill descriptions for triggering accuracy
+
+**CRITICAL**: Whenever a task involves creating a new skill, you MUST use skill-creator. The skill-creator will automatically update task-decomposer and s_full.py to include the new skill.
 
 ---
 
@@ -423,8 +425,11 @@ User Request
         ├── MCP server → mcp-builder
         ├── Web app testing → webapp-testing
         ├── Code comments (Chinese) → code-comment
-        └── Skill creation → skill-creator
+        ├── Creating new skill → skill-creator (REQUIRED)
+        └── Skill optimization → skill-creator
 ```
+
+**IMPORTANT**: Any task involving creating or adding new skills MUST use skill-creator. This ensures proper skill registration in task-decomposer and s_full.py.
 
 ---
 

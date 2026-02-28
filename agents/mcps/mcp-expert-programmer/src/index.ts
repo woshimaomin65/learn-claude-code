@@ -10,6 +10,7 @@ import { z } from "zod";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "fs";
 import { join, relative, dirname, basename } from "path";
 import { glob } from "glob";
+import { parseCode, CodeElement, ClassInfo, ImportInfo, ParseResult } from "./ast-parser.js";
 
 // 工具输入验证 Schema
 const ProjectMapSchema = z.object({
@@ -40,6 +41,39 @@ const BatchOperationSchema = z.object({
   })).describe("批量操作列表"),
   dryRun: z.boolean().optional().describe("是否仅预览不实际执行，默认 false"),
   continueOnError: z.boolean().optional().describe("出错时是否继续执行，默认 false"),
+});
+
+// AST 解析工具输入验证 Schema
+const ParseCodeSchema = z.object({
+  filePath: z.string().describe("要解析的源代码文件路径"),
+  code: z.string().optional().describe("代码内容，如不提供则从文件读取"),
+  includeImports: z.boolean().optional().describe("是否包含导入信息，默认 true"),
+  includeFunctions: z.boolean().optional().describe("是否包含函数信息，默认 true"),
+  includeClasses: z.boolean().optional().describe("是否包含类信息，默认 true"),
+  includeConstants: z.boolean().optional().describe("是否包含常量信息，默认 true"),
+});
+
+const FindCodeElementsSchema = z.object({
+  filePath: z.string().describe("要搜索的源代码文件路径"),
+  elementType: z.enum(["function", "class", "method", "constant", "import", "all"]).describe("要查找的元素类型"),
+  namePattern: z.string().optional().describe("名称匹配模式（支持正则）"),
+  minLine: z.number().optional().describe("最小行号"),
+  maxLine: z.number().optional().describe("最大行号"),
+});
+
+const GetFunctionSignatureSchema = z.object({
+  filePath: z.string().describe("源代码文件路径"),
+  functionName: z.string().describe("函数名称"),
+});
+
+const GetClassStructureSchema = z.object({
+  filePath: z.string().describe("源代码文件路径"),
+  className: z.string().describe("类名称"),
+});
+
+const AnalyzeImportsSchema = z.object({
+  filePath: z.string().describe("源代码文件路径"),
+  includeDetails: z.boolean().optional().describe("是否包含详细信息，默认 true"),
 });
 
 // 工具定义
@@ -148,6 +182,137 @@ const TOOLS = [
         continueOnError: { type: "boolean", description: "出错时是否继续执行" },
       },
       required: ["operations"],
+    },
+  },
+  {
+    name: "parse_code",
+    description: `使用 AST 解析代码结构，提取函数、类、导入等元素。
+    
+功能特点：
+- 支持 Python、JavaScript、TypeScript
+- 提取完整的 AST 信息
+- 包含行号、列号位置信息
+- 支持参数和返回类型分析
+
+解析内容：
+- 函数定义（名称、参数、返回类型）
+- 类定义（方法、属性、继承）
+- 导入语句（模块、别名）
+- 常量定义
+
+使用场景：
+- 代码分析和理解
+- 自动生成文档
+- 代码重构辅助
+- 依赖分析`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "要解析的源代码文件路径" },
+        code: { type: "string", description: "代码内容，如不提供则从文件读取" },
+        includeImports: { type: "boolean", description: "是否包含导入信息" },
+        includeFunctions: { type: "boolean", description: "是否包含函数信息" },
+        includeClasses: { type: "boolean", description: "是否包含类信息" },
+        includeConstants: { type: "boolean", description: "是否包含常量信息" },
+      },
+      required: ["filePath"],
+    },
+  },
+  {
+    name: "find_code_elements",
+    description: `查找特定类型的代码元素（函数、类、方法等）。
+    
+功能特点：
+- 按类型过滤（function/class/method/constant/import）
+- 支持名称正则匹配
+- 支持行号范围过滤
+- 返回完整位置信息
+
+使用场景：
+- 快速定位代码
+- 查找特定函数/类
+- 代码导航辅助
+- 重构目标定位`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "要搜索的源代码文件路径" },
+        elementType: { type: "string", enum: ["function", "class", "method", "constant", "import", "all"], description: "要查找的元素类型" },
+        namePattern: { type: "string", description: "名称匹配模式（支持正则）" },
+        minLine: { type: "number", description: "最小行号" },
+        maxLine: { type: "number", description: "最大行号" },
+      },
+      required: ["filePath", "elementType"],
+    },
+  },
+  {
+    name: "get_function_signature",
+    description: `获取指定函数的完整签名信息。
+    
+功能特点：
+- 提取函数名称
+- 完整参数列表（含类型和默认值）
+- 返回类型注解
+- 装饰器信息
+
+使用场景：
+- API 文档生成
+- 函数调用参考
+- 类型检查辅助`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "源代码文件路径" },
+        functionName: { type: "string", description: "函数名称" },
+      },
+      required: ["filePath", "functionName"],
+    },
+  },
+  {
+    name: "get_class_structure",
+    description: `获取指定类的完整结构信息。
+    
+功能特点：
+- 提取类名称和基类
+- 所有方法列表
+- 属性列表
+- 装饰器信息
+
+使用场景：
+- 类文档生成
+- 继承关系分析
+- 面向对象设计审查`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "源代码文件路径" },
+        className: { type: "string", description: "类名称" },
+      },
+      required: ["filePath", "className"],
+    },
+  },
+  {
+    name: "analyze_imports",
+    description: `分析文件的导入依赖关系。
+    
+功能特点：
+- 提取所有导入语句
+- 区分默认导入和命名导入
+- 识别导入别名
+- 统计模块依赖
+
+使用场景：
+- 依赖分析
+- 循环导入检测
+- 代码清理（移除未使用导入）
+- 模块化评估`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "源代码文件路径" },
+        includeDetails: { type: "boolean", description: "是否包含详细信息" },
+      },
+      required: ["filePath"],
     },
   },
 ];
@@ -631,6 +796,334 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: `## 批量操作结果\n\n整体状态：${result.success ? "✅ 全部成功" : "⚠️ 部分失败"}\n\n${resultsText}`,
+            },
+          ],
+        };
+      }
+      
+      case "parse_code": {
+        const validated = ParseCodeSchema.parse(args);
+        const {
+          filePath,
+          code,
+          includeImports = true,
+          includeFunctions = true,
+          includeClasses = true,
+          includeConstants = true,
+        } = validated;
+        
+        // 读取代码内容
+        const fileContent = code || readFileSync(filePath, "utf-8");
+        
+        // 解析代码
+        const parseResult = parseCode(fileContent, filePath);
+        
+        // 构建结果文本
+        let resultText = `## 代码解析结果\n\n**文件**: ${filePath}\n**语言**: ${parseResult.language}\n\n`;
+        
+        if (includeFunctions && parseResult.functions.length > 0) {
+          resultText += `### 函数 (${parseResult.functions.length})\n\n`;
+          parseResult.functions.forEach(func => {
+            resultText += `#### ${func.name}\n`;
+            resultText += `- 位置：第 ${func.startLine}-${func.endLine} 行\n`;
+            if (func.signature) resultText += `- 签名：\`${func.signature}\`\n`;
+            if (func.returnType) resultText += `- 返回类型：${func.returnType}\n`;
+            if (func.parameters && func.parameters.length > 0) {
+              resultText += `- 参数：${func.parameters.map(p => `${p.name}${p.typeAnnotation ? ': ' + p.typeAnnotation : ''}`).join(', ')}\n`;
+            }
+            if (func.decorators && func.decorators.length > 0) {
+              resultText += `- 装饰器：${func.decorators.join(', ')}\n`;
+            }
+            resultText += '\n';
+          });
+        }
+        
+        if (includeClasses && parseResult.classes.length > 0) {
+          resultText += `### 类 (${parseResult.classes.length})\n\n`;
+          parseResult.classes.forEach(cls => {
+            resultText += `#### ${cls.name}\n`;
+            resultText += `- 位置：第 ${cls.startLine}-${cls.endLine} 行\n`;
+            if (cls.baseClasses.length > 0) resultText += `- 继承：${cls.baseClasses.join(', ')}\n`;
+            if (cls.methods.length > 0) resultText += `- 方法：${cls.methods.map(m => m.name).join(', ')}\n`;
+            if (cls.properties.length > 0) resultText += `- 属性：${cls.properties.join(', ')}\n`;
+            if (cls.decorators.length > 0) resultText += `- 装饰器：${cls.decorators.join(', ')}\n`;
+            resultText += '\n';
+          });
+        }
+        
+        if (includeImports && parseResult.imports.length > 0) {
+          resultText += `### 导入 (${parseResult.imports.length})\n\n`;
+          parseResult.imports.forEach(imp => {
+            if (imp.isDefaultImport) {
+              resultText += `- \`${imp.importedName}${imp.alias ? ' as ' + imp.alias : ''}\` from \`${imp.moduleName}\`\n`;
+            } else if (imp.isNamespaceImport) {
+              resultText += `- \`${imp.alias}\` (namespace) from \`${imp.moduleName}\`\n`;
+            } else {
+              resultText += `- \`${imp.importedName}${imp.alias ? ' as ' + imp.alias : ''}\` from \`${imp.moduleName}\`\n`;
+            }
+          });
+          resultText += '\n';
+        }
+        
+        if (includeConstants && parseResult.constants.length > 0) {
+          resultText += `### 常量 (${parseResult.constants.length})\n\n`;
+          parseResult.constants.forEach(c => {
+            resultText += `- \`${c.name}\` (第 ${c.startLine} 行)\n`;
+          });
+          resultText += '\n';
+        }
+        
+        if (!includeFunctions && !includeClasses && !includeImports && !includeConstants) {
+          resultText += "*未选择任何解析选项*\n";
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: resultText,
+            },
+          ],
+        };
+      }
+      
+      case "find_code_elements": {
+        const validated = FindCodeElementsSchema.parse(args);
+        const {
+          filePath,
+          elementType,
+          namePattern,
+          minLine,
+          maxLine,
+        } = validated;
+        
+        // 读取代码内容
+        const fileContent = readFileSync(filePath, "utf-8");
+        
+        // 解析代码
+        const parseResult = parseCode(fileContent, filePath);
+        
+        let elements: (CodeElement | ClassInfo)[] = [];
+        
+        if (elementType === "all" || elementType === "function") {
+          elements = [...elements, ...parseResult.functions];
+        }
+        if (elementType === "all" || elementType === "class") {
+          elements = [...elements, ...parseResult.classes];
+        }
+        if (elementType === "all" || elementType === "method") {
+          parseResult.classes.forEach(cls => {
+            elements = [...elements, ...cls.methods];
+          });
+        }
+        if (elementType === "all" || elementType === "constant") {
+          elements = [...elements, ...parseResult.constants];
+        }
+        if (elementType === "all" || elementType === "import") {
+          elements = [...elements, ...parseResult.imports as unknown as CodeElement[]];
+        }
+        
+        // 过滤
+        if (namePattern) {
+          const regex = new RegExp(namePattern, "i");
+          elements = elements.filter(e => regex.test(e.name));
+        }
+        if (minLine) {
+          elements = elements.filter(e => e.startLine >= minLine);
+        }
+        if (maxLine) {
+          elements = elements.filter(e => e.endLine <= maxLine);
+        }
+        
+        let resultText = `## 代码元素查找结果\n\n**文件**: ${filePath}\n**类型**: ${elementType}\n**找到**: ${elements.length} 个\n\n`;
+        
+        elements.forEach(el => {
+          resultText += `### ${el.name}\n`;
+          if ('type' in el) {
+            resultText += `- 类型：${el.type}\n`;
+          }
+          resultText += `- 位置：第 ${el.startLine}-${el.endLine} 行\n`;
+          if ('signature' in el && el.signature) {
+            resultText += `- 签名：\`${el.signature}\`\n`;
+          }
+          resultText += '\n';
+        });
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: resultText,
+            },
+          ],
+        };
+      }
+      
+      case "get_function_signature": {
+        const validated = GetFunctionSignatureSchema.parse(args);
+        const { filePath, functionName } = validated;
+        
+        // 读取代码内容
+        const fileContent = readFileSync(filePath, "utf-8");
+        
+        // 解析代码
+        const parseResult = parseCode(fileContent, filePath);
+        
+        // 查找函数
+        const func = parseResult.functions.find(f => f.name === functionName);
+        
+        if (!func) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `❌ 未找到函数：${functionName}\n\n可用的函数：${parseResult.functions.map(f => f.name).join(', ') || "无"}`,
+              },
+            ],
+          };
+        }
+        
+        let resultText = `## 函数签名\n\n### ${func.name}\n\n`;
+        resultText += `**位置**: 第 ${func.startLine}-${func.endLine} 行\n\n`;
+        resultText += `**签名**:\n\`\`\`\n${func.signature || func.name}()\n\`\`\`\n\n`;
+        
+        if (func.parameters && func.parameters.length > 0) {
+          resultText += `**参数**:\n\n`;
+          func.parameters.forEach(p => {
+            resultText += `- \`${p.name}\``;
+            if (p.typeAnnotation) resultText += `: ${p.typeAnnotation}`;
+            if (p.defaultValue) resultText += ` = ${p.defaultValue}`;
+            resultText += '\n';
+          });
+          resultText += '\n';
+        }
+        
+        if (func.returnType) {
+          resultText += `**返回类型**: ${func.returnType}\n\n`;
+        }
+        
+        if (func.decorators && func.decorators.length > 0) {
+          resultText += `**装饰器**: ${func.decorators.join(', ')}\n\n`;
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: resultText,
+            },
+          ],
+        };
+      }
+      
+      case "get_class_structure": {
+        const validated = GetClassStructureSchema.parse(args);
+        const { filePath, className } = validated;
+        
+        // 读取代码内容
+        const fileContent = readFileSync(filePath, "utf-8");
+        
+        // 解析代码
+        const parseResult = parseCode(fileContent, filePath);
+        
+        // 查找类
+        const cls = parseResult.classes.find(c => c.name === className);
+        
+        if (!cls) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `❌ 未找到类：${className}\n\n可用的类：${parseResult.classes.map(c => c.name).join(', ') || "无"}`,
+              },
+            ],
+          };
+        }
+        
+        let resultText = `## 类结构\n\n### ${cls.name}\n\n`;
+        resultText += `**位置**: 第 ${cls.startLine}-${cls.endLine} 行\n\n`;
+        
+        if (cls.baseClasses.length > 0) {
+          resultText += `**继承**: ${cls.baseClasses.join(', ')}\n\n`;
+        }
+        
+        if (cls.decorators.length > 0) {
+          resultText += `**装饰器**: ${cls.decorators.join(', ')}\n\n`;
+        }
+        
+        if (cls.methods.length > 0) {
+          resultText += `**方法** (${cls.methods.length}):\n\n`;
+          cls.methods.forEach(m => {
+            resultText += `- \`${m.name}\` (第 ${m.startLine}-${m.endLine} 行)\n`;
+          });
+          resultText += '\n';
+        }
+        
+        if (cls.properties.length > 0) {
+          resultText += `**属性**:\n\n`;
+          cls.properties.forEach(p => {
+            resultText += `- \`${p}\`\n`;
+          });
+          resultText += '\n';
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: resultText,
+            },
+          ],
+        };
+      }
+      
+      case "analyze_imports": {
+        const validated = AnalyzeImportsSchema.parse(args);
+        const { filePath, includeDetails = true } = validated;
+        
+        // 读取代码内容
+        const fileContent = readFileSync(filePath, "utf-8");
+        
+        // 解析代码
+        const parseResult = parseCode(fileContent, filePath);
+        
+        // 按模块分组
+        const modulesMap = new Map<string, ImportInfo[]>();
+        parseResult.imports.forEach(imp => {
+          if (!modulesMap.has(imp.moduleName)) {
+            modulesMap.set(imp.moduleName, []);
+          }
+          modulesMap.get(imp.moduleName)!.push(imp);
+        });
+        
+        let resultText = `## 导入依赖分析\n\n**文件**: ${filePath}\n**总导入数**: ${parseResult.imports.length}\n**模块数**: ${modulesMap.size}\n\n`;
+        
+        if (includeDetails) {
+          modulesMap.forEach((imports, moduleName) => {
+            resultText += `### \`${moduleName}\`\n\n`;
+            imports.forEach(imp => {
+              if (imp.isDefaultImport) {
+                resultText += `- 默认导入：${imp.alias || imp.importedName}\n`;
+              } else if (imp.isNamespaceImport) {
+                resultText += `- 命名空间导入：${imp.alias}\n`;
+              } else {
+                resultText += `- 命名导入：\`${imp.importedName}\`${imp.alias ? ` → \`${imp.alias}\`` : ''}\n`;
+              }
+            });
+            resultText += '\n';
+          });
+        } else {
+          resultText += `**导入的模块**:\n\n`;
+          modulesMap.forEach((_, moduleName) => {
+            resultText += `- \`${moduleName}\`\n`;
+          });
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: resultText,
             },
           ],
         };
